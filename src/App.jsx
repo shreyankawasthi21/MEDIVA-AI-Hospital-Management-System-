@@ -19,7 +19,10 @@ import {
   Check,
   ShieldAlert,
   RotateCcw,
-  X 
+  X,
+  ArrowRight,
+  ShieldCheck,
+  LogOut
 } from 'lucide-react';
 
 const INITIAL_DOCTORS = [
@@ -38,6 +41,14 @@ const INITIAL_DOCTORS = [
     dept: 'Dentist', 
     email: 'sarvesh.garg@mediva.care', 
     phone: '+91 9179676499' 
+  },
+  { 
+    id: 3, 
+    name: 'Dr. Aryan Saxena', 
+    spec: 'Senior Neurologist', 
+    dept: 'Neurology', 
+    email: 'aryan.saxena@mediva.care', 
+    phone: '+91 98765 43210' 
   }
 ];
 
@@ -125,46 +136,49 @@ const sortMedsByAscendingExpiry = (list) => {
 };
 
 export default function App() {
+  // Navigation & Screen Gate States
+  const [hasEntered, setHasEntered] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+
   const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const allTimeSlots = useMemo(() => generate10MinSlots(), []);
 
   // Persistent States
   const [doctors, setDoctors] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_doctors_v4');
+    const saved = localStorage.getItem('mediva_live_doctors_v5');
     return saved ? JSON.parse(saved) : INITIAL_DOCTORS;
   });
 
   const [patients, setPatients] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_patients_v5');
+    const saved = localStorage.getItem('mediva_live_patients_v6');
     return saved ? JSON.parse(saved) : INITIAL_PATIENTS;
   });
 
   const [appointments, setAppointments] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_appointments_v5');
+    const saved = localStorage.getItem('mediva_live_appointments_v6');
     return saved ? JSON.parse(saved) : INITIAL_APPOINTMENTS;
   });
 
   const [medicines, setMedicines] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_medicines_v5');
+    const saved = localStorage.getItem('mediva_live_medicines_v6');
     const data = saved ? JSON.parse(saved) : INITIAL_MEDICINES;
     return sortMedsByAscendingExpiry(data);
   });
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_doctors_v4', JSON.stringify(doctors));
+    localStorage.setItem('mediva_live_doctors_v5', JSON.stringify(doctors));
   }, [doctors]);
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_patients_v5', JSON.stringify(patients));
+    localStorage.setItem('mediva_live_patients_v6', JSON.stringify(patients));
   }, [patients]);
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_appointments_v5', JSON.stringify(appointments));
+    localStorage.setItem('mediva_live_appointments_v6', JSON.stringify(appointments));
   }, [appointments]);
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_medicines_v5', JSON.stringify(medicines));
+    localStorage.setItem('mediva_live_medicines_v6', JSON.stringify(medicines));
   }, [medicines]);
 
   // Modal States
@@ -172,12 +186,12 @@ export default function App() {
   const [showPatientModal, setShowPatientModal] = useState(false);
   const [showMedModal, setShowMedModal] = useState(false);
   
-  // EHR Drawer / Modal State
+  // EHR Dossier State
   const [activeEhrPatient, setActiveEhrPatient] = useState(null);
   const [dispatchAlert, setDispatchAlert] = useState('');
   const [medToast, setMedToast] = useState('');
 
-  // Prescription Form States inside EHR
+  // Prescription Form States
   const [prescribeMed, setPrescribeMed] = useState('');
   const [prescribeDosage, setPrescribeDosage] = useState('');
   const [prescribeDuration, setPrescribeDuration] = useState('');
@@ -206,12 +220,28 @@ export default function App() {
   const [newPtContact, setNewPtContact] = useState('');
 
   // Medicine Form States
+  const [medMode, setMedMode] = useState('existing'); // 'existing' | 'new'
   const [medName, setMedName] = useState('');
   const [medBatch, setMedBatch] = useState('');
   const [medCategory, setMedCategory] = useState('');
   const [medStock, setMedStock] = useState('');
   const [medUnit, setMedUnit] = useState('Tablets');
   const [medExpiry, setMedExpiry] = useState('');
+
+  // Extract unique medicine names for catalog selection
+  const uniqueMedNames = useMemo(() => {
+    return Array.from(new Set(medicines.map(m => m.name.trim())));
+  }, [medicines]);
+
+  // Pre-fill category & unit when selecting an existing drug
+  const handleSelectExistingMed = (selectedName) => {
+    setMedName(selectedName);
+    const existing = medicines.find(m => m.name.trim().toLowerCase() === selectedName.trim().toLowerCase());
+    if (existing) {
+      setMedCategory(existing.category || '');
+      setMedUnit(existing.unit || 'Tablets');
+    }
+  };
 
   // Calculate dynamically available 10-min slots for chosen doctor & date
   const availableSlots = useMemo(() => {
@@ -400,35 +430,35 @@ export default function App() {
     setShowPatientModal(false);
   };
 
-  // Medicine Addition with Smart Aggregation and Expiry Sorting
+  // Medicine Addition: Aggregates matching expiry, creates new row for different expiry
   const handleAddMedicine = (e) => {
     e.preventDefault();
-    if (!medName || !medExpiry) return;
-
     const cleanName = medName.trim();
+    if (!cleanName || !medExpiry) return;
+
     const qtyToAdd = Number(medStock) || 0;
 
     setMedicines(prevMeds => {
-      const existingIndex = prevMeds.findIndex(
-        m => m.name.trim().toLowerCase() === cleanName.toLowerCase()
+      // Check if an entry with the EXACT SAME NAME and EXACT SAME EXPIRY exists
+      const existingBatchIndex = prevMeds.findIndex(
+        m => m.name.trim().toLowerCase() === cleanName.toLowerCase() && m.expiry === medExpiry
       );
 
       let updatedList;
-      if (existingIndex !== -1) {
-        // Drug exists: Aggregate stock instead of duplicating
+      if (existingBatchIndex !== -1) {
+        // Same drug AND same expiry date -> Merge stock into that existing row
         updatedList = [...prevMeds];
-        const existingItem = updatedList[existingIndex];
-        updatedList[existingIndex] = {
+        const existingItem = updatedList[existingBatchIndex];
+        updatedList[existingBatchIndex] = {
           ...existingItem,
           stock: Number(existingItem.stock) + qtyToAdd,
           batch: medBatch.trim() ? medBatch.trim() : existingItem.batch,
-          expiry: medExpiry || existingItem.expiry,
           category: medCategory.trim() || existingItem.category,
           unit: medUnit || existingItem.unit
         };
-        setMedToast(`Updated "${cleanName}" inventory: +${qtyToAdd} ${medUnit} added.`);
+        setMedToast(`Restocked "${cleanName}" (${medExpiry}): +${qtyToAdd} ${medUnit} added.`);
       } else {
-        // Brand new drug entity
+        // Different expiry date OR brand new drug -> Create a new batch entry row
         const newMed = {
           id: `m${Date.now()}`,
           name: cleanName,
@@ -439,10 +469,10 @@ export default function App() {
           expiry: medExpiry
         };
         updatedList = [...prevMeds, newMed];
-        setMedToast(`Added "${cleanName}" to pharmacy inventory.`);
+        setMedToast(`Created new batch for "${cleanName}" expiring ${medExpiry} (+${qtyToAdd} ${medUnit}).`);
       }
 
-      // Maintain strictly ascending expiry date order
+      // Maintain strictly ascending order of expiry dates
       return sortMedsByAscendingExpiry(updatedList);
     });
 
@@ -453,17 +483,96 @@ export default function App() {
     setMedExpiry('');
     setShowMedModal(false);
 
-    setTimeout(() => setMedToast(''), 4000);
+    setTimeout(() => setMedToast(''), 4500);
   };
 
+  // -----------------------------------------------------------
+  // 1. ENTRY / WELCOME LANDING SCREEN
+  // -----------------------------------------------------------
+  if (!hasEntered) {
+    return (
+      <div className="min-h-screen bg-[#070D18] flex flex-col items-center justify-center p-6 relative overflow-hidden text-white select-none">
+        {/* Ambient Medical Glow Backgrounds */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] bg-sky-500/10 rounded-full blur-[140px] pointer-events-none"></div>
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[280px] h-[280px] bg-teal-500/10 rounded-full blur-[90px] pointer-events-none"></div>
+
+        <div className="relative z-10 flex flex-col items-center text-center max-w-xl animate-in fade-in zoom-in-95 duration-700">
+          
+          {/* Logo with Soft Cyan Radial Halo */}
+          <div className="relative mb-8 group">
+            <div className="absolute -inset-2 bg-gradient-to-r from-sky-500/30 to-teal-500/30 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500 opacity-80"></div>
+            <img 
+              src="/logo.png" 
+              alt="Mediva Emblem" 
+              className="relative w-36 h-36 md:w-44 md:h-44 rounded-full object-cover border border-sky-400/20 shadow-2xl shadow-sky-950"
+            />
+          </div>
+
+          {/* Operational Status Pill */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-950/60 border border-sky-500/30 text-sky-400 text-xs font-semibold tracking-wider uppercase mb-5 backdrop-blur-md">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            Operational • EHR & Clinical Engine Live
+          </div>
+
+          {/* Typography: Modern Clinical Typography */}
+          <h1 className="text-4xl md:text-6xl font-black tracking-[0.22em] text-transparent bg-clip-text bg-gradient-to-r from-white via-sky-100 to-sky-400 mb-3 drop-shadow-sm font-sans uppercase">
+            MEDIVA
+          </h1>
+
+          <p className="text-sm md:text-base font-medium tracking-[0.16em] text-slate-400 uppercase max-w-md mb-8">
+            Hospital Management & Information System
+          </p>
+
+          {/* Feature Micro-Badges */}
+          <div className="grid grid-cols-3 gap-3 w-full max-w-md mb-10 text-slate-300 text-xs">
+            <div className="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xs">
+              <span className="block font-bold text-sky-400">Offline-First</span>
+              <span className="text-[10px] text-slate-400">Deterministic</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xs">
+              <span className="block font-bold text-teal-400">EHR Core</span>
+              <span className="text-[10px] text-slate-400">Vitals & Allergy</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xs">
+              <span className="block font-bold text-sky-400">Pharmacy</span>
+              <span className="text-[10px] text-slate-400">FIFO Expiry Sort</span>
+            </div>
+          </div>
+
+          {/* CTA: Enter Portal */}
+          <button
+            onClick={() => setHasEntered(true)}
+            className="group px-8 py-3.5 rounded-xl bg-gradient-to-r from-[#0284C7] to-[#0D9488] hover:from-[#0369A1] hover:to-[#0F766E] text-white font-bold text-sm tracking-wide shadow-lg shadow-sky-600/25 transition-all duration-200 flex items-center gap-3 cursor-pointer"
+          >
+            Access Clinical Portal
+            <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+          </button>
+
+          <p className="text-[11px] text-slate-500 mt-8 tracking-wider">
+            MEDIVA CLINICAL PLATFORM • SYSTEM RELEASE V1.0
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------
+  // 2. MAIN APPLICATION INTERFACE
+  // -----------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex font-sans text-[#0F172A]">
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-[#E2E8F0] flex flex-col justify-between p-5">
         <div>
+          {/* Brand Header with Custom Logo */}
           <div className="flex items-center gap-3 px-2 py-3 mb-6">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-[#0284C7] to-[#0D9488] flex items-center justify-center text-white shadow-md shadow-sky-500/20">
-              <HeartPulse className="w-5 h-5 text-white" />
+            <div className="relative flex-shrink-0">
+              <div className="absolute inset-0 rounded-full bg-sky-400/20 blur-xs scale-105 pointer-events-none"></div>
+              <img 
+                src="/logo.png" 
+                alt="Mediva Logo" 
+                className="relative h-11 w-11 rounded-full object-cover shadow-sm border border-slate-200" 
+              />
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-[#0F172A]">Mediva</h1>
@@ -509,11 +618,21 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="p-3.5 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs text-[#64748B]">
-          <p className="font-semibold text-[#0F172A]">EHR & Cloud Engine</p>
-          <p className="mt-1 flex items-center gap-1.5 text-teal-600 font-medium">
-            <span className="h-2 w-2 rounded-full bg-teal-500 animate-pulse"></span> Active & Synchronized
-          </p>
+        <div className="space-y-2">
+          <div className="p-3.5 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs text-[#64748B]">
+            <p className="font-semibold text-[#0F172A]">EHR & Cloud Engine</p>
+            <p className="mt-1 flex items-center gap-1.5 text-teal-600 font-medium">
+              <span className="h-2 w-2 rounded-full bg-teal-500 animate-pulse"></span> Active & Synchronized
+            </p>
+          </div>
+
+          {/* Return to Entry Screen Button */}
+          <button 
+            onClick={() => setHasEntered(false)}
+            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors border border-transparent hover:border-slate-200"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Return to Welcome Screen
+          </button>
         </div>
       </aside>
 
@@ -532,7 +651,7 @@ export default function App() {
                 onClick={() => setShowMedModal(true)}
                 className="px-4 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white text-sm font-semibold rounded-lg shadow-sm transition-all flex items-center gap-2"
               >
-                <PlusCircle className="w-4 h-4" /> Add / Restock Medication
+                <PlusCircle className="w-4 h-4" /> Manage Medication
               </button>
             ) : (
               <>
@@ -693,7 +812,7 @@ export default function App() {
                 <div className="p-5 border-b border-[#E2E8F0] flex justify-between items-center">
                   <div>
                     <h3 className="text-base font-bold text-[#0F172A]">Clinical Pharmacy Stock (Sorted by Expiry: Ascending)</h3>
-                    <p className="text-xs text-[#64748B]">Duplicates automatically merge into existing batches</p>
+                    <p className="text-xs text-[#64748B]">Different expiry dates automatically create distinct batch entries</p>
                   </div>
                   <button 
                     onClick={() => setShowMedModal(true)}
@@ -747,7 +866,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: SCHEDULE VISIT (10-Min Slots & Past Dates Disabled) */}
+          {/* TAB: SCHEDULE VISIT (Aligned Form & Filtered 10-Min Slots) */}
           {activeTab === 'book' && (
             <div className="max-w-xl bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-sm">
               <form onSubmit={handleBook} className="space-y-4">
@@ -857,7 +976,7 @@ export default function App() {
               <div className="p-5 border-b border-[#E2E8F0] flex justify-between items-center">
                 <div>
                   <h3 className="text-base font-bold text-[#0F172A]">All Appointments</h3>
-                  <p className="text-xs text-[#64748B]">Booked 10-min slots are automatically locked out</p>
+                  <p className="text-xs text-[#64748B]">Booked 10-minute slots are locked out dynamically</p>
                 </div>
                 <button 
                   onClick={() => setActiveTab('book')}
@@ -1209,31 +1328,92 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: ADD / RESTOCK MEDICATION */}
+      {/* MODAL: ADD / RESTOCK MEDICATION (Existing vs New Tabs) */}
       {showMedModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white border border-[#E2E8F0] rounded-2xl w-full max-w-md p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h3 className="font-bold text-base text-[#0F172A]">Add or Restock Drug</h3>
-                <p className="text-xs text-[#64748B]">Entering an existing drug name will automatically merge units</p>
+                <h3 className="font-bold text-base text-[#0F172A]">Manage Pharmacy Stock</h3>
+                <p className="text-xs text-[#64748B]">Choose an existing drug to restock or register a new one</p>
               </div>
               <button onClick={() => setShowMedModal(false)} className="text-[#64748B] hover:text-[#0F172A]">
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Option Tabs: Existing vs New Medicine */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-lg mb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setMedMode('existing');
+                  if (uniqueMedNames.length > 0 && !medName) {
+                    handleSelectExistingMed(uniqueMedNames[0]);
+                  }
+                }}
+                className={`py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  medMode === 'existing'
+                    ? 'bg-white text-[#0284C7] shadow-xs'
+                    : 'text-[#64748B] hover:text-[#0F172A]'
+                }`}
+              >
+                Existing Medicine
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMedMode('new');
+                  setMedName('');
+                  setMedCategory('');
+                }}
+                className={`py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  medMode === 'new'
+                    ? 'bg-white text-[#0284C7] shadow-xs'
+                    : 'text-[#64748B] hover:text-[#0F172A]'
+                }`}
+              >
+                + New Medicine
+              </button>
+            </div>
+
             <form onSubmit={handleAddMedicine} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Drug Name & Dosage</label>
-                <input 
-                  type="text" 
-                  value={medName} 
-                  onChange={(e) => setMedName(e.target.value)} 
-                  placeholder="e.g. Paracetamol IV 100ml"
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
-                  required 
-                />
-              </div>
+              {medMode === 'existing' ? (
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">
+                    Select Existing Medicine
+                  </label>
+                  <select 
+                    value={medName} 
+                    onChange={(e) => handleSelectExistingMed(e.target.value)}
+                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] bg-white"
+                    required
+                  >
+                    <option value="">-- Choose from catalog --</option>
+                    {uniqueMedNames.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-[#64748B] mt-1">
+                    * If the expiry date matches an existing batch, stock merges. If it differs, a new batch is created.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">
+                    Drug Name & Dosage
+                  </label>
+                  <input 
+                    type="text" 
+                    value={medName} 
+                    onChange={(e) => setMedName(e.target.value)} 
+                    placeholder="e.g. Ciprofloxacin 500mg"
+                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    required 
+                  />
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Batch Number</label>
@@ -1251,11 +1431,12 @@ export default function App() {
                     type="text" 
                     value={medCategory} 
                     onChange={(e) => setMedCategory(e.target.value)} 
-                    placeholder="e.g. Analgesic"
+                    placeholder="e.g. Antibiotic"
                     className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
                   />
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Stock Units</label>
@@ -1274,7 +1455,7 @@ export default function App() {
                   <select 
                     value={medUnit} 
                     onChange={(e) => setMedUnit(e.target.value)}
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] bg-white"
                   >
                     {['Tablets', 'Capsules', 'Vials', 'Bottles', 'Ampoules'].map(u => (
                       <option key={u} value={u}>{u}</option>
@@ -1282,8 +1463,9 @@ export default function App() {
                   </select>
                 </div>
               </div>
+
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Expiry Date</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Batch Expiry Date</label>
                 <input 
                   type="date" 
                   value={medExpiry} 
@@ -1292,11 +1474,12 @@ export default function App() {
                   required 
                 />
               </div>
+
               <button 
                 type="submit" 
                 className="w-full mt-4 py-2.5 bg-[#0284C7] hover:bg-[#0369A1] text-white font-semibold text-sm rounded-lg shadow-sm transition-all"
               >
-                Log / Update Pharmacy Stock
+                {medMode === 'existing' ? 'Restock / Add Batch' : 'Register New Medicine'}
               </button>
             </form>
           </div>
