@@ -32,7 +32,7 @@ const INITIAL_DOCTORS = [
     spec: 'Chief Cardiologist', 
     dept: 'Cardiology', 
     email: 'shourya.soni@mediva.care', 
-    phone: '+91 7470301106' 
+    phone: '+91 123456789' 
   },
   { 
     id: 2, 
@@ -145,7 +145,7 @@ export default function App() {
 
   // Persistent States
   const [doctors, setDoctors] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_doctors_v5');
+    const saved = localStorage.getItem('mediva_live_doctors_v8');
     return saved ? JSON.parse(saved) : INITIAL_DOCTORS;
   });
 
@@ -166,7 +166,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_doctors_v5', JSON.stringify(doctors));
+    localStorage.setItem('mediva_live_doctors_v8', JSON.stringify(doctors));
   }, [doctors]);
 
   useEffect(() => {
