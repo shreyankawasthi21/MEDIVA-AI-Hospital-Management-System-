@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from './supabase';
 import { 
   Users, 
   Calendar, 
@@ -22,7 +23,8 @@ import {
   X,
   ArrowRight,
   ShieldCheck,
-  LogOut
+  LogOut,
+  RefreshCw
 } from 'lucide-react';
 
 const INITIAL_DOCTORS = [
@@ -112,14 +114,13 @@ const INITIAL_MEDICINES = [
   { id: 'm5', name: 'Lidocaine 2% Injection', batch: 'LC-7731', category: 'Dental Anesthetic', stock: 11, unit: 'Ampoules', expiry: '2026-10-08' },
 ];
 
-// Helper: Generate 10-minute interval slots from 09:00 AM to 05:00 PM
 const generate10MinSlots = () => {
   const slots = [];
-  const startHour = 9;  // 9 AM
-  const endHour = 17;   // 5 PM
+  const startHour = 9;
+  const endHour = 17;
   for (let h = startHour; h <= endHour; h++) {
     for (let m = 0; m < 60; m += 10) {
-      if (h === endHour && m > 0) break; // Stop at 05:00 PM
+      if (h === endHour && m > 0) break;
       const hour12 = h % 12 === 0 ? 12 : h % 12;
       const ampm = h >= 12 ? 'PM' : 'AM';
       const hourStr = hour12 < 10 ? `0${hour12}` : `${hour12}`;
@@ -130,56 +131,107 @@ const generate10MinSlots = () => {
   return slots;
 };
 
-// Helper: Ascending sort by expiry date
 const sortMedsByAscendingExpiry = (list) => {
   return [...list].sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
 };
 
 export default function App() {
-  // Navigation & Screen Gate States
   const [hasEntered, setHasEntered] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
   const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const allTimeSlots = useMemo(() => generate10MinSlots(), []);
 
-  // Persistent States
+  // Primary States (Hydrated with Local Storage Fallbacks)
   const [doctors, setDoctors] = useState(() => {
     const saved = localStorage.getItem('mediva_live_doctors_v8');
     return saved ? JSON.parse(saved) : INITIAL_DOCTORS;
   });
 
   const [patients, setPatients] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_patients_v6');
+    const saved = localStorage.getItem('mediva_live_patients_v8');
     return saved ? JSON.parse(saved) : INITIAL_PATIENTS;
   });
 
   const [appointments, setAppointments] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_appointments_v6');
+    const saved = localStorage.getItem('mediva_live_appointments_v8');
     return saved ? JSON.parse(saved) : INITIAL_APPOINTMENTS;
   });
 
   const [medicines, setMedicines] = useState(() => {
-    const saved = localStorage.getItem('mediva_live_medicines_v6');
+    const saved = localStorage.getItem('mediva_live_medicines_v8');
     const data = saved ? JSON.parse(saved) : INITIAL_MEDICINES;
     return sortMedsByAscendingExpiry(data);
   });
 
+  // Local Storage Backups
   useEffect(() => {
     localStorage.setItem('mediva_live_doctors_v8', JSON.stringify(doctors));
   }, [doctors]);
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_patients_v6', JSON.stringify(patients));
+    localStorage.setItem('mediva_live_patients_v8', JSON.stringify(patients));
   }, [patients]);
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_appointments_v6', JSON.stringify(appointments));
+    localStorage.setItem('mediva_live_appointments_v8', JSON.stringify(appointments));
   }, [appointments]);
 
   useEffect(() => {
-    localStorage.setItem('mediva_live_medicines_v6', JSON.stringify(medicines));
+    localStorage.setItem('mediva_live_medicines_v8', JSON.stringify(medicines));
   }, [medicines]);
+
+  // -----------------------------------------------------------
+  // SUPABASE INITIAL FETCH & SEED SYNC
+  // -----------------------------------------------------------
+  // -----------------------------------------------------------
+  // SUPABASE INITIAL FETCH & SEED SYNC
+  // -----------------------------------------------------------
+  useEffect(() => {
+    async function syncWithSupabase() {
+      setIsCloudSyncing(true);
+      try {
+        // 1. Doctors
+        const { data: dbDocs, error: docErr } = await supabase.from('doctors').select('*');
+        if (!docErr && dbDocs && dbDocs.length > 0) {
+          setDoctors(dbDocs);
+        } else if (!docErr && dbDocs && dbDocs.length === 0) {
+          await supabase.from('doctors').upsert(INITIAL_DOCTORS, { onConflict: 'id' });
+        }
+
+        // 2. Patients
+        const { data: dbPatients, error: ptErr } = await supabase.from('patients').select('*');
+        if (!ptErr && dbPatients && dbPatients.length > 0) {
+          setPatients(dbPatients);
+        } else if (!ptErr && dbPatients && dbPatients.length === 0) {
+          await supabase.from('patients').upsert(INITIAL_PATIENTS, { onConflict: 'id' });
+        }
+
+        // 3. Appointments
+        const { data: dbApts, error: aptErr } = await supabase.from('appointments').select('*');
+        if (!aptErr && dbApts && dbApts.length > 0) {
+          setAppointments(dbApts);
+        } else if (!aptErr && dbApts && dbApts.length === 0) {
+          await supabase.from('appointments').upsert(INITIAL_APPOINTMENTS, { onConflict: 'id' });
+        }
+
+        // 4. Medicines
+        const { data: dbMeds, error: medErr } = await supabase.from('medicines').select('*');
+        if (!medErr && dbMeds && dbMeds.length > 0) {
+          setMedicines(sortMedsByAscendingExpiry(dbMeds));
+        } else if (!medErr && dbMeds && dbMeds.length === 0) {
+          await supabase.from('medicines').upsert(INITIAL_MEDICINES, { onConflict: 'id' });
+        }
+      } catch (err) {
+        console.warn("Supabase connection fallback to offline-storage mode:", err);
+      } finally {
+        setIsCloudSyncing(false);
+      }
+    }
+
+    syncWithSupabase();
+  }, []);
 
   // Modal States
   const [showDoctorModal, setShowDoctorModal] = useState(false);
@@ -220,7 +272,7 @@ export default function App() {
   const [newPtContact, setNewPtContact] = useState('');
 
   // Medicine Form States
-  const [medMode, setMedMode] = useState('existing'); // 'existing' | 'new'
+  const [medMode, setMedMode] = useState('existing');
   const [medName, setMedName] = useState('');
   const [medBatch, setMedBatch] = useState('');
   const [medCategory, setMedCategory] = useState('');
@@ -228,12 +280,10 @@ export default function App() {
   const [medUnit, setMedUnit] = useState('Tablets');
   const [medExpiry, setMedExpiry] = useState('');
 
-  // Extract unique medicine names for catalog selection
   const uniqueMedNames = useMemo(() => {
     return Array.from(new Set(medicines.map(m => m.name.trim())));
   }, [medicines]);
 
-  // Pre-fill category & unit when selecting an existing drug
   const handleSelectExistingMed = (selectedName) => {
     setMedName(selectedName);
     const existing = medicines.find(m => m.name.trim().toLowerCase() === selectedName.trim().toLowerCase());
@@ -243,7 +293,6 @@ export default function App() {
     }
   };
 
-  // Calculate dynamically available 10-min slots for chosen doctor & date
   const availableSlots = useMemo(() => {
     if (!selectedDoc || !aptDate) return allTimeSlots;
     const bookedTimes = appointments
@@ -252,18 +301,21 @@ export default function App() {
     return allTimeSlots.filter(slot => !bookedTimes.includes(slot));
   }, [allTimeSlots, appointments, selectedDoc, aptDate]);
 
-  // Toggle Appointment Status (Scheduled <-> Completed)
-  const toggleAppointmentStatus = (id) => {
-    setAppointments(prev => prev.map(a => {
-      if (a.id === id) {
-        const nextStatus = a.status === 'Completed' ? 'Scheduled' : 'Completed';
-        return { ...a, status: nextStatus };
-      }
-      return a;
-    }));
+  // TOGGLE STATUS & UPDATE SUPABASE
+  const toggleAppointmentStatus = async (id) => {
+    const targetApt = appointments.find(a => a.id === id);
+    if (!targetApt) return;
+    const nextStatus = targetApt.status === 'Completed' ? 'Scheduled' : 'Completed';
+
+    setAppointments(prev => prev.map(a => a.id === id ? { ...a, status: nextStatus } : a));
+
+    try {
+      await supabase.from('appointments').update({ status: nextStatus }).eq('id', id);
+    } catch (err) {
+      console.warn("Supabase appointment update error:", err);
+    }
   };
 
-  // Expiry Calculation Helper
   const checkExpiryStatus = (expiryDateStr) => {
     const today = new Date();
     const exp = new Date(expiryDateStr);
@@ -282,7 +334,6 @@ export default function App() {
   const expiringSoonCount = medicines.filter(m => checkExpiryStatus(m.expiry).status === 'Expiring Soon').length;
   const lowStockCount = medicines.filter(m => Number(m.stock) <= 15).length;
 
-  // Open EHR Record
   const handleOpenEHR = (patientIdentifier) => {
     const pt = typeof patientIdentifier === 'string'
       ? patients.find(p => p.name.trim().toLowerCase() === patientIdentifier.trim().toLowerCase())
@@ -294,22 +345,24 @@ export default function App() {
     }
   };
 
-  // Dispatch Digital Prescription & Deduct Pharmacy Stock
-  const handleSendPrescription = (e) => {
+  // DISPATCH RX & SYNC WITH SUPABASE
+  const handleSendPrescription = async (e) => {
     e.preventDefault();
     if (!prescribeMed || !prescribeDosage || !activeEhrPatient) return;
 
     const qtyNumber = Number(prescribeQty) || 1;
 
-    setMedicines(prevMeds => {
-      const updated = prevMeds.map(m => {
-        if (m.name.toLowerCase().includes(prescribeMed.toLowerCase()) || prescribeMed.toLowerCase().includes(m.name.toLowerCase())) {
-          return { ...m, stock: Math.max(0, m.stock - qtyNumber) };
-        }
-        return m;
-      });
-      return sortMedsByAscendingExpiry(updated);
+    // Deduct stock locally
+    const updatedMeds = medicines.map(m => {
+      if (m.name.toLowerCase().includes(prescribeMed.toLowerCase()) || prescribeMed.toLowerCase().includes(m.name.toLowerCase())) {
+        const newStock = Math.max(0, m.stock - qtyNumber);
+        // Sync deducted medicine to Supabase
+        supabase.from('medicines').update({ stock: newStock }).eq('id', m.id).then();
+        return { ...m, stock: newStock };
+      }
+      return m;
     });
+    setMedicines(sortMedsByAscendingExpiry(updatedMeds));
 
     const newRx = {
       id: `rx-${Date.now()}`,
@@ -322,17 +375,19 @@ export default function App() {
       status: 'Sent via SMS & EHR Portal'
     };
 
-    const updatedPatients = patients.map(p => {
-      if (p.id === activeEhrPatient.id) {
-        const updatedList = [newRx, ...(p.prescriptions || [])];
-        const updatedPt = { ...p, prescriptions: updatedList };
-        setActiveEhrPatient(updatedPt);
-        return updatedPt;
-      }
-      return p;
-    });
+    const updatedPrescriptionList = [newRx, ...(activeEhrPatient.prescriptions || [])];
+    const updatedPt = { ...activeEhrPatient, prescriptions: updatedPrescriptionList };
 
-    setPatients(updatedPatients);
+    setActiveEhrPatient(updatedPt);
+    setPatients(prev => prev.map(p => p.id === activeEhrPatient.id ? updatedPt : p));
+
+    // Sync updated prescriptions to Supabase
+    try {
+      await supabase.from('patients').update({ prescriptions: updatedPrescriptionList }).eq('id', activeEhrPatient.id);
+    } catch (err) {
+      console.warn("Supabase Rx sync error:", err);
+    }
+
     setDispatchAlert(`Digital prescription dispatched to ${activeEhrPatient.contact}! Stock deducted.`);
     setPrescribeMed('');
     setPrescribeDosage('');
@@ -342,16 +397,17 @@ export default function App() {
     setTimeout(() => setDispatchAlert(''), 4500);
   };
 
-  // Appointment Booking
-  const handleBook = (e) => {
+  // SCHEDULE APPOINTMENT & SYNC WITH SUPABASE
+  const handleBook = async (e) => {
     e.preventDefault();
     if (!patientName || !selectedDoc || !aptDate || !aptTime) return;
 
     const docObj = doctors.find(d => d.name === selectedDoc);
     const existing = patients.find(p => p.name.trim().toLowerCase() === patientName.trim().toLowerCase());
     
+    let createdPatient = null;
     if (!existing) {
-      const newPt = {
+      createdPatient = {
         id: `p${Date.now()}`,
         name: patientName,
         dob: '2001-01-01',
@@ -362,7 +418,12 @@ export default function App() {
         vitals: { bp: '120/80', pulse: '72 bpm', weight: '70 kg' },
         prescriptions: []
       };
-      setPatients(prev => [newPt, ...prev]);
+      setPatients(prev => [createdPatient, ...prev]);
+      try {
+        await supabase.from('patients').insert([createdPatient]);
+      } catch (err) {
+        console.warn("Supabase auto-patient insert error:", err);
+      }
     }
 
     const newAppointment = {
@@ -382,9 +443,16 @@ export default function App() {
     setAptTime('');
     setReason('');
     setActiveTab('appointments');
+
+    try {
+      await supabase.from('appointments').insert([newAppointment]);
+    } catch (err) {
+      console.warn("Supabase appointment insert error:", err);
+    }
   };
 
-  const handleAddDoctor = (e) => {
+  // ADD DOCTOR & SYNC WITH SUPABASE
+  const handleAddDoctor = async (e) => {
     e.preventDefault();
     if (!docName || !docSpec || !docDept) return;
 
@@ -405,9 +473,16 @@ export default function App() {
     setDocEmail('');
     setDocPhone('');
     setShowDoctorModal(false);
+
+    try {
+      await supabase.from('doctors').insert([newDoc]);
+    } catch (err) {
+      console.warn("Supabase doctor insert error:", err);
+    }
   };
 
-  const handleAddPatient = (e) => {
+  // ADD PATIENT & SYNC WITH SUPABASE
+  const handleAddPatient = async (e) => {
     e.preventDefault();
     if (!newPtName) return;
 
@@ -428,53 +503,75 @@ export default function App() {
     setNewPtDob('');
     setNewPtContact('');
     setShowPatientModal(false);
+
+    try {
+      await supabase.from('patients').insert([newPt]);
+    } catch (err) {
+      console.warn("Supabase patient insert error:", err);
+    }
   };
 
-  // Medicine Addition: Aggregates matching expiry, creates new row for different expiry
-  const handleAddMedicine = (e) => {
+  // ADD / RESTOCK MEDICINE & SYNC WITH SUPABASE
+  const handleAddMedicine = async (e) => {
     e.preventDefault();
     const cleanName = medName.trim();
     if (!cleanName || !medExpiry) return;
 
     const qtyToAdd = Number(medStock) || 0;
 
-    setMedicines(prevMeds => {
-      // Check if an entry with the EXACT SAME NAME and EXACT SAME EXPIRY exists
-      const existingBatchIndex = prevMeds.findIndex(
-        m => m.name.trim().toLowerCase() === cleanName.toLowerCase() && m.expiry === medExpiry
-      );
+    const existingBatchIndex = medicines.findIndex(
+      m => m.name.trim().toLowerCase() === cleanName.toLowerCase() && m.expiry === medExpiry
+    );
 
-      let updatedList;
-      if (existingBatchIndex !== -1) {
-        // Same drug AND same expiry date -> Merge stock into that existing row
-        updatedList = [...prevMeds];
-        const existingItem = updatedList[existingBatchIndex];
-        updatedList[existingBatchIndex] = {
-          ...existingItem,
-          stock: Number(existingItem.stock) + qtyToAdd,
-          batch: medBatch.trim() ? medBatch.trim() : existingItem.batch,
-          category: medCategory.trim() || existingItem.category,
-          unit: medUnit || existingItem.unit
-        };
-        setMedToast(`Restocked "${cleanName}" (${medExpiry}): +${qtyToAdd} ${medUnit} added.`);
-      } else {
-        // Different expiry date OR brand new drug -> Create a new batch entry row
-        const newMed = {
-          id: `m${Date.now()}`,
-          name: cleanName,
-          batch: medBatch.trim() || `BX-${Math.floor(1000 + Math.random() * 9000)}`,
-          category: medCategory.trim() || 'General Supply',
-          stock: qtyToAdd,
-          unit: medUnit,
-          expiry: medExpiry
-        };
-        updatedList = [...prevMeds, newMed];
-        setMedToast(`Created new batch for "${cleanName}" expiring ${medExpiry} (+${qtyToAdd} ${medUnit}).`);
+    if (existingBatchIndex !== -1) {
+      const existingItem = medicines[existingBatchIndex];
+      const updatedStock = Number(existingItem.stock) + qtyToAdd;
+      const updatedBatch = medBatch.trim() ? medBatch.trim() : existingItem.batch;
+      const updatedCategory = medCategory.trim() || existingItem.category;
+      const updatedUnit = medUnit || existingItem.unit;
+
+      const updatedList = [...medicines];
+      updatedList[existingBatchIndex] = {
+        ...existingItem,
+        stock: updatedStock,
+        batch: updatedBatch,
+        category: updatedCategory,
+        unit: updatedUnit
+      };
+
+      setMedicines(sortMedsByAscendingExpiry(updatedList));
+      setMedToast(`Restocked "${cleanName}" (${medExpiry}): +${qtyToAdd} ${medUnit} added.`);
+
+      try {
+        await supabase.from('medicines').update({ 
+          stock: updatedStock,
+          batch: updatedBatch,
+          category: updatedCategory,
+          unit: updatedUnit
+        }).eq('id', existingItem.id);
+      } catch (err) {
+        console.warn("Supabase restock update error:", err);
       }
+    } else {
+      const newMed = {
+        id: `m${Date.now()}`,
+        name: cleanName,
+        batch: medBatch.trim() || `BX-${Math.floor(1000 + Math.random() * 9000)}`,
+        category: medCategory.trim() || 'General Supply',
+        stock: qtyToAdd,
+        unit: medUnit,
+        expiry: medExpiry
+      };
 
-      // Maintain strictly ascending order of expiry dates
-      return sortMedsByAscendingExpiry(updatedList);
-    });
+      setMedicines(sortMedsByAscendingExpiry([...medicines, newMed]));
+      setMedToast(`Created new batch for "${cleanName}" expiring ${medExpiry} (+${qtyToAdd} ${medUnit}).`);
+
+      try {
+        await supabase.from('medicines').insert([newMed]);
+      } catch (err) {
+        console.warn("Supabase new medicine insert error:", err);
+      }
+    }
 
     setMedName('');
     setMedBatch('');
@@ -492,13 +589,11 @@ export default function App() {
   if (!hasEntered) {
     return (
       <div className="min-h-screen bg-[#070D18] flex flex-col items-center justify-center p-6 relative overflow-hidden text-white select-none">
-        {/* Ambient Medical Glow Backgrounds */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] bg-sky-500/10 rounded-full blur-[140px] pointer-events-none"></div>
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[280px] h-[280px] bg-teal-500/10 rounded-full blur-[90px] pointer-events-none"></div>
 
         <div className="relative z-10 flex flex-col items-center text-center max-w-xl animate-in fade-in zoom-in-95 duration-700">
           
-          {/* Logo with Soft Cyan Radial Halo */}
           <div className="relative mb-8 group">
             <div className="absolute -inset-2 bg-gradient-to-r from-sky-500/30 to-teal-500/30 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500 opacity-80"></div>
             <img 
@@ -508,13 +603,11 @@ export default function App() {
             />
           </div>
 
-          {/* Operational Status Pill */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-950/60 border border-sky-500/30 text-sky-400 text-xs font-semibold tracking-wider uppercase mb-5 backdrop-blur-md">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            Operational • EHR & Clinical Engine Live
+            Operational • EHR & Cloud Supabase Live
           </div>
 
-          {/* Typography: Modern Clinical Typography */}
           <h1 className="text-4xl md:text-6xl font-black tracking-[0.22em] text-transparent bg-clip-text bg-gradient-to-r from-white via-sky-100 to-sky-400 mb-3 drop-shadow-sm font-sans uppercase">
             MEDIVA
           </h1>
@@ -523,11 +616,10 @@ export default function App() {
             Hospital Management & Information System
           </p>
 
-          {/* Feature Micro-Badges */}
           <div className="grid grid-cols-3 gap-3 w-full max-w-md mb-10 text-slate-300 text-xs">
             <div className="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xs">
-              <span className="block font-bold text-sky-400">Offline-First</span>
-              <span className="text-[10px] text-slate-400">Deterministic</span>
+              <span className="block font-bold text-sky-400">Cloud Sync</span>
+              <span className="text-[10px] text-slate-400">PostgreSQL</span>
             </div>
             <div className="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xs">
               <span className="block font-bold text-teal-400">EHR Core</span>
@@ -539,7 +631,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* CTA: Enter Portal */}
           <button
             onClick={() => setHasEntered(true)}
             className="group px-8 py-3.5 rounded-xl bg-gradient-to-r from-[#0284C7] to-[#0D9488] hover:from-[#0369A1] hover:to-[#0F766E] text-white font-bold text-sm tracking-wide shadow-lg shadow-sky-600/25 transition-all duration-200 flex items-center gap-3 cursor-pointer"
@@ -622,11 +713,11 @@ export default function App() {
           <div className="p-3.5 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs text-[#64748B]">
             <p className="font-semibold text-[#0F172A]">EHR & Cloud Engine</p>
             <p className="mt-1 flex items-center gap-1.5 text-teal-600 font-medium">
-              <span className="h-2 w-2 rounded-full bg-teal-500 animate-pulse"></span> Active & Synchronized
+              <span className={`h-2 w-2 rounded-full ${isCloudSyncing ? 'bg-amber-500 animate-spin' : 'bg-teal-500 animate-pulse'}`}></span>
+              {isCloudSyncing ? 'Syncing Supabase...' : 'Supabase Synchronized'}
             </p>
           </div>
 
-          {/* Return to Entry Screen Button */}
           <button 
             onClick={() => setHasEntered(false)}
             className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors border border-transparent hover:border-slate-200"
@@ -672,7 +763,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* Global Toast for Medicine Updates */}
         {medToast && (
           <div className="bg-sky-700 text-white px-8 py-2.5 text-xs font-semibold flex items-center gap-2 shadow-sm">
             <Check className="w-4 h-4 text-emerald-300" />
@@ -866,7 +956,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: SCHEDULE VISIT (Aligned Form & Filtered 10-Min Slots) */}
+          {/* TAB: SCHEDULE VISIT */}
           {activeTab === 'book' && (
             <div className="max-w-xl bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-sm">
               <form onSubmit={handleBook} className="space-y-4">
@@ -888,7 +978,7 @@ export default function App() {
                     value={selectedDoc} 
                     onChange={(e) => {
                       setSelectedDoc(e.target.value);
-                      setAptTime(''); // reset slot when doctor changes
+                      setAptTime('');
                     }}
                     className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
                     required
@@ -911,7 +1001,7 @@ export default function App() {
                       value={aptDate} 
                       onChange={(e) => {
                         setAptDate(e.target.value);
-                        setAptTime(''); // reset slot when date changes
+                        setAptTime('');
                       }}
                       className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
                       required
@@ -976,7 +1066,7 @@ export default function App() {
               <div className="p-5 border-b border-[#E2E8F0] flex justify-between items-center">
                 <div>
                   <h3 className="text-base font-bold text-[#0F172A]">All Appointments</h3>
-                  <p className="text-xs text-[#64748B]">Booked 10-minute slots are locked out dynamically</p>
+                  <p className="text-xs text-[#64748B]">Synced with Supabase PostgreSQL Engine</p>
                 </div>
                 <button 
                   onClick={() => setActiveTab('book')}
@@ -1328,7 +1418,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: ADD / RESTOCK MEDICATION (Existing vs New Tabs) */}
+      {/* MODAL: ADD / RESTOCK MEDICATION */}
       {showMedModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white border border-[#E2E8F0] rounded-2xl w-full max-w-md p-6 shadow-xl">
@@ -1342,7 +1432,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Option Tabs: Existing vs New Medicine */}
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-lg mb-4">
               <button
                 type="button"

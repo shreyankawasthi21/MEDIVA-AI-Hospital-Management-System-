@@ -1,27 +1,95 @@
 # Mediva — Clinical Information & Hospital Management System
 
-Mediva is a responsive, high-performance Hospital Information System (HIS) engineered with React, Vite, and Tailwind CSS. Built with an offline-first, reactive client architecture, it guarantees 0ms latency, deterministic data persistence, and zero runtime failures during clinical simulations.
+A modern, offline-resilient hospital management platform built with **React**, **Vite**, **Tailwind CSS**, and **Supabase (PostgreSQL)**. Mediva streamlines patient electronic health records (EHR), automated 10-minute appointment scheduling, clinical faculty directories, and clinical pharmacy inventory tracking with FIFO expiry sorting.
 
-## Key Features
+---
 
-- **Electronic Health Records (EHR) Dossier:** Centralized clinical records tracking patient vitals (blood pressure, radial pulse), blood groups, and high-contrast allergy alerts to prevent contraindications.
-- **Digital Prescription & Atomic Stock Deduction:** Direct medication dispatch from within patient dossiers that appends prescriptions to medical history and atomically updates pharmacy stock units.
-- **Dynamic 10-Minute Consultation Scheduler:** Real-time time slot allocation (09:00 AM – 05:00 PM). Automatically blocks past dates and removes booked slots from doctor availability in real time.
-- **Pharmacy Inventory & Expiry Engine:** Automated shelf-life auditing that flags expired batches in red, items expiring within 30 days in amber (for FIFO rotation), and low-stock alerts (≤15 units).
-- **Consultation Lifecycle Management:** One-click toggling between `Scheduled` and `Completed` statuses with real-time dashboard analytics.
-- **Smart Stock Deduplication:** Automatically aggregates incoming medication batches with existing drug entities to prevent table bloat.
+## Features
+
+### 🩺 Clinical Faculty & Doctor Directory
+- Specialist faculty directory categorized by medical departments (Cardiology, Neurology, Dentistry, etc.).
+- Real-time contact and credential visibility.
+- On-the-fly specialist onboarding modal.
+
+### 📋 Electronic Health Records (EHR) Dossier
+- Comprehensive patient profiles logging blood type, allergies, and baseline vitals (BP, resting pulse, weight).
+- Digital prescription engine with live stock deduction from the pharmacy inventory.
+- Complete digital prescription timeline with dispensing status.
+
+### ⏱️ Dynamic Consultation Scheduling
+- 10-minute interval slot allocation engine (09:00 AM – 05:00 PM).
+- Dynamic slot filtering preventing double-booking across doctors and dates.
+- Interactive status toggle (`Scheduled` ↔ `Completed`) with instant database synchronization.
+
+### 💊 Clinical Pharmacy & Drug Expiry Monitor
+- Multi-batch tracking with automatic ascending FIFO sort by expiration date.
+- Real-time shelf-life badges: `Expired`, `Expiring Soon (≤30d)`, and `Shelf Life Safe`.
+- Low-stock warnings for items with fewer than 15 units remaining.
+- Intelligent restock: merges stock if batch and expiry date match, or generates a distinct batch entry if expiration dates differ.
+
+### ☁️ Supabase Cloud Engine & Resilient State
+- Live PostgreSQL backend syncing `doctors`, `patients`, `appointments`, and `medicines`.
+- Native `jsonb` schema support for patient vitals and nested prescription arrays.
+- Dual-layer persistence: optimistic updates combined with local cache fallbacks for zero UI latency.
+
+---
 
 ## Tech Stack
 
 - **Frontend:** React 18, Vite
 - **Styling:** Tailwind CSS
 - **Icons:** Lucide React
-- **State & Persistence:** React Hooks (`useState`, `useEffect`, `useMemo`) with serialized `localStorage` caching
-- **Deployment:** Vercel Edge Network
+- **Database & Backend:** Supabase (PostgreSQL, PostgREST)
+- **Deployment:** Vercel
 
-## Getting Started
+---
 
-### Prerequisites
-- Node.js (v18 or higher)
-- npm or yarn
+## Database Architecture (Supabase SQL)
 
+Mediva runs on four relational PostgreSQL tables:
+
+```sql
+-- 1. Doctors Table
+CREATE TABLE doctors (
+  id bigint PRIMARY KEY,
+  name text NOT NULL,
+  spec text,
+  dept text,
+  email text,
+  phone text
+);
+
+-- 2. Patients Table (JSONB support for vitals & prescriptions)
+CREATE TABLE patients (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  dob text,
+  gender text,
+  blood text,
+  contact text,
+  allergies text,
+  vitals jsonb DEFAULT '{}'::jsonb,
+  prescriptions jsonb DEFAULT '[]'::jsonb
+);
+
+-- 3. Appointments Table
+CREATE TABLE appointments (
+  id text PRIMARY KEY,
+  patient text NOT NULL,
+  doctor text NOT NULL,
+  dept text,
+  date text NOT NULL,
+  time text NOT NULL,
+  status text DEFAULT 'Scheduled'
+);
+
+-- 4. Medicines Table
+CREATE TABLE medicines (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  batch text,
+  category text,
+  stock integer DEFAULT 0,
+  unit text,
+  expiry text NOT NULL
+);
