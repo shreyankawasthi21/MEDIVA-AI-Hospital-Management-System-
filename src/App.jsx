@@ -23,8 +23,7 @@ import {
   X,
   ArrowRight,
   ShieldCheck,
-  LogOut,
-  RefreshCw
+  LogOut
 } from 'lucide-react';
 
 const INITIAL_DOCTORS = [
@@ -182,12 +181,7 @@ export default function App() {
     localStorage.setItem('mediva_live_medicines_v8', JSON.stringify(medicines));
   }, [medicines]);
 
-  // -----------------------------------------------------------
-  // SUPABASE INITIAL FETCH & SEED SYNC
-  // -----------------------------------------------------------
-  // -----------------------------------------------------------
-  // SUPABASE INITIAL FETCH & SEED SYNC
-  // -----------------------------------------------------------
+  // Supabase Hydration & Non-Destructive Upsert Seeding
   useEffect(() => {
     async function syncWithSupabase() {
       setIsCloudSyncing(true);
@@ -270,6 +264,7 @@ export default function App() {
   const [newPtGender, setNewPtGender] = useState('Male');
   const [newPtBlood, setNewPtBlood] = useState('O+');
   const [newPtContact, setNewPtContact] = useState('');
+  const [newPtAllergies, setNewPtAllergies] = useState('');
 
   // Medicine Form States
   const [medMode, setMedMode] = useState('existing');
@@ -301,7 +296,7 @@ export default function App() {
     return allTimeSlots.filter(slot => !bookedTimes.includes(slot));
   }, [allTimeSlots, appointments, selectedDoc, aptDate]);
 
-  // TOGGLE STATUS & UPDATE SUPABASE
+  // Toggle Appointment Status (Scheduled <-> Completed)
   const toggleAppointmentStatus = async (id) => {
     const targetApt = appointments.find(a => a.id === id);
     if (!targetApt) return;
@@ -345,7 +340,7 @@ export default function App() {
     }
   };
 
-  // DISPATCH RX & SYNC WITH SUPABASE
+  // Dispatch Digital Prescription & Deduct Pharmacy Stock
   const handleSendPrescription = async (e) => {
     e.preventDefault();
     if (!prescribeMed || !prescribeDosage || !activeEhrPatient) return;
@@ -356,7 +351,6 @@ export default function App() {
     const updatedMeds = medicines.map(m => {
       if (m.name.toLowerCase().includes(prescribeMed.toLowerCase()) || prescribeMed.toLowerCase().includes(m.name.toLowerCase())) {
         const newStock = Math.max(0, m.stock - qtyNumber);
-        // Sync deducted medicine to Supabase
         supabase.from('medicines').update({ stock: newStock }).eq('id', m.id).then();
         return { ...m, stock: newStock };
       }
@@ -381,7 +375,6 @@ export default function App() {
     setActiveEhrPatient(updatedPt);
     setPatients(prev => prev.map(p => p.id === activeEhrPatient.id ? updatedPt : p));
 
-    // Sync updated prescriptions to Supabase
     try {
       await supabase.from('patients').update({ prescriptions: updatedPrescriptionList }).eq('id', activeEhrPatient.id);
     } catch (err) {
@@ -397,7 +390,7 @@ export default function App() {
     setTimeout(() => setDispatchAlert(''), 4500);
   };
 
-  // SCHEDULE APPOINTMENT & SYNC WITH SUPABASE
+  // Appointment Booking
   const handleBook = async (e) => {
     e.preventDefault();
     if (!patientName || !selectedDoc || !aptDate || !aptTime) return;
@@ -414,7 +407,7 @@ export default function App() {
         gender: 'Not Specified',
         blood: 'Unknown',
         contact: 'Self-Registered',
-        allergies: 'None logged',
+        allergies: 'None recorded',
         vitals: { bp: '120/80', pulse: '72 bpm', weight: '70 kg' },
         prescriptions: []
       };
@@ -451,7 +444,7 @@ export default function App() {
     }
   };
 
-  // ADD DOCTOR & SYNC WITH SUPABASE
+  // Add Doctor
   const handleAddDoctor = async (e) => {
     e.preventDefault();
     if (!docName || !docSpec || !docDept) return;
@@ -481,7 +474,7 @@ export default function App() {
     }
   };
 
-  // ADD PATIENT & SYNC WITH SUPABASE
+  // Add Patient (With Known Allergies field)
   const handleAddPatient = async (e) => {
     e.preventDefault();
     if (!newPtName) return;
@@ -493,7 +486,7 @@ export default function App() {
       gender: newPtGender,
       blood: newPtBlood,
       contact: newPtContact || '+91 90000 00000',
-      allergies: 'None recorded',
+      allergies: newPtAllergies.trim() || 'None recorded',
       vitals: { bp: '120/80', pulse: '70 bpm', weight: '65 kg' },
       prescriptions: []
     };
@@ -502,6 +495,7 @@ export default function App() {
     setNewPtName('');
     setNewPtDob('');
     setNewPtContact('');
+    setNewPtAllergies('');
     setShowPatientModal(false);
 
     try {
@@ -511,7 +505,7 @@ export default function App() {
     }
   };
 
-  // ADD / RESTOCK MEDICINE & SYNC WITH SUPABASE
+  // Add / Restock Medicine
   const handleAddMedicine = async (e) => {
     e.preventDefault();
     const cleanName = medName.trim();
@@ -655,7 +649,7 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-[#E2E8F0] flex flex-col justify-between p-5">
         <div>
-          {/* Brand Header with Custom Logo */}
+          {/* Brand Header */}
           <div className="flex items-center gap-3 px-2 py-3 mb-6">
             <div className="relative flex-shrink-0">
               <div className="absolute inset-0 rounded-full bg-sky-400/20 blur-xs scale-105 pointer-events-none"></div>
@@ -1192,7 +1186,7 @@ export default function App() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-xs font-medium text-amber-700">
-                        {p.allergies || 'None logged'}
+                        {p.allergies || 'None recorded'}
                       </td>
                       <td className="px-6 py-4 text-[#64748B]">{p.contact}</td>
                       <td className="px-6 py-4 text-right">
@@ -1298,7 +1292,7 @@ export default function App() {
                   <p className="text-[10px] uppercase font-bold flex items-center justify-center gap-1">
                     <ShieldAlert className="w-3 h-3 text-amber-600" /> Allergies
                   </p>
-                  <p className="text-xs font-bold mt-1 truncate">{activeEhrPatient.allergies || 'None'}</p>
+                  <p className="text-xs font-bold mt-1 truncate">{activeEhrPatient.allergies || 'None recorded'}</p>
                 </div>
               </div>
 
@@ -1693,6 +1687,16 @@ export default function App() {
                   onChange={(e) => setNewPtContact(e.target.value)} 
                   placeholder="+91 91234 00000"
                   className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Known Allergies</label>
+                <input 
+                  type="text" 
+                  value={newPtAllergies} 
+                  onChange={(e) => setNewPtAllergies(e.target.value)} 
+                  placeholder="e.g. Penicillin, Sulfa Drugs (or None recorded)" 
+                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]" 
                 />
               </div>
               <button 
