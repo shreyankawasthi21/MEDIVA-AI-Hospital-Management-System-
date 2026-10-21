@@ -23,7 +23,12 @@ import {
   X,
   ArrowRight,
   ShieldCheck,
-  LogOut
+  LogOut,
+  Sun,
+  Moon,
+  BedDouble,
+  Receipt,
+  Printer
 } from 'lucide-react';
 
 const INITIAL_DOCTORS = [
@@ -113,6 +118,44 @@ const INITIAL_MEDICINES = [
   { id: 'm5', name: 'Lidocaine 2% Injection', batch: 'LC-7731', category: 'Dental Anesthetic', stock: 11, unit: 'Ampoules', expiry: '2026-10-08' },
 ];
 
+const INITIAL_BEDS = [
+  { id: 'b1', bed_number: 'ICU-101', ward: 'ICU', is_occupied: true, patient_name: 'Shreyank Awasthi' },
+  { id: 'b2', bed_number: 'ICU-102', ward: 'ICU', is_occupied: false, patient_name: '' },
+  { id: 'b3', bed_number: 'GW-201', ward: 'General Ward', is_occupied: false, patient_name: '' },
+  { id: 'b4', bed_number: 'GW-202', ward: 'General Ward', is_occupied: true, patient_name: 'Aarav Sharma' },
+  { id: 'b5', bed_number: 'GW-203', ward: 'General Ward', is_occupied: false, patient_name: '' },
+  { id: 'b6', bed_number: 'EM-01', ward: 'Emergency', is_occupied: true, patient_name: 'Priya Patel' },
+  { id: 'b7', bed_number: 'EM-02', ward: 'Emergency', is_occupied: false, patient_name: '' },
+  { id: 'b8', bed_number: 'PD-301', ward: 'Pediatrics', is_occupied: false, patient_name: '' }
+];
+
+const INITIAL_BILLS = [
+  { 
+    id: 'INV-1001', 
+    patient_name: 'Shreyank Awasthi', 
+    patient_phone: '+91 98765 00001', 
+    doctor_fee: 600, 
+    room_charges: 2500, 
+    medicine_charges: 350, 
+    tax: 172, 
+    total_amount: 3622, 
+    status: 'Paid', 
+    date: '2026-10-20' 
+  },
+  { 
+    id: 'INV-1002', 
+    patient_name: 'Aarav Sharma', 
+    patient_phone: '+91 91234 56789', 
+    doctor_fee: 500, 
+    room_charges: 1200, 
+    medicine_charges: 180, 
+    tax: 94, 
+    total_amount: 1974, 
+    status: 'Pending', 
+    date: '2026-10-21' 
+  }
+];
+
 const generate10MinSlots = () => {
   const slots = [];
   const startHour = 9;
@@ -139,6 +182,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
+  // Dark Mode Theme State
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem('mediva_theme_v8') === 'dark';
+  });
+
   const todayDateStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const allTimeSlots = useMemo(() => generate10MinSlots(), []);
 
@@ -164,6 +212,29 @@ export default function App() {
     return sortMedsByAscendingExpiry(data);
   });
 
+  // Bed Management State
+  const [beds, setBeds] = useState(() => {
+    const saved = localStorage.getItem('mediva_live_beds_v8');
+    return saved ? JSON.parse(saved) : INITIAL_BEDS;
+  });
+
+  // Billing Engine State
+  const [bills, setBills] = useState(() => {
+    const saved = localStorage.getItem('mediva_live_bills_v8');
+    return saved ? JSON.parse(saved) : INITIAL_BILLS;
+  });
+
+  // Dark Mode Root Class Sync
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('mediva_theme_v8', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('mediva_theme_v8', 'light');
+    }
+  }, [darkMode]);
+
   // Local Storage Backups
   useEffect(() => {
     localStorage.setItem('mediva_live_doctors_v8', JSON.stringify(doctors));
@@ -180,6 +251,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('mediva_live_medicines_v8', JSON.stringify(medicines));
   }, [medicines]);
+
+  useEffect(() => {
+    localStorage.setItem('mediva_live_beds_v8', JSON.stringify(beds));
+  }, [beds]);
+
+  useEffect(() => {
+    localStorage.setItem('mediva_live_bills_v8', JSON.stringify(bills));
+  }, [bills]);
 
   // Supabase Hydration & Non-Destructive Upsert Seeding
   useEffect(() => {
@@ -217,6 +296,22 @@ export default function App() {
         } else if (!medErr && dbMeds && dbMeds.length === 0) {
           await supabase.from('medicines').upsert(INITIAL_MEDICINES, { onConflict: 'id' });
         }
+
+        // 5. Beds
+        const { data: dbBeds, error: bedErr } = await supabase.from('beds').select('*');
+        if (!bedErr && dbBeds && dbBeds.length > 0) {
+          setBeds(dbBeds);
+        } else if (!bedErr && dbBeds && dbBeds.length === 0) {
+          await supabase.from('beds').upsert(INITIAL_BEDS, { onConflict: 'id' });
+        }
+
+        // 6. Bills
+        const { data: dbBills, error: billErr } = await supabase.from('bills').select('*');
+        if (!billErr && dbBills && dbBills.length > 0) {
+          setBills(dbBills);
+        } else if (!billErr && dbBills && dbBills.length === 0) {
+          await supabase.from('bills').upsert(INITIAL_BILLS, { onConflict: 'id' });
+        }
       } catch (err) {
         console.warn("Supabase connection fallback to offline-storage mode:", err);
       } finally {
@@ -232,6 +327,19 @@ export default function App() {
   const [showPatientModal, setShowPatientModal] = useState(false);
   const [showMedModal, setShowMedModal] = useState(false);
   
+  // Bed Management Modals
+  const [showBedModal, setShowBedModal] = useState(false);
+  const [selectedBed, setSelectedBed] = useState(null);
+  const [admitPatientName, setAdmitPatientName] = useState('');
+
+  // Billing Modals
+  const [showBillModal, setShowBillModal] = useState(false);
+  const [activeInvoice, setActiveInvoice] = useState(null);
+  const [billPatient, setBillPatient] = useState('');
+  const [billDocFee, setBillDocFee] = useState(500);
+  const [billRoomFee, setBillRoomFee] = useState(1000);
+  const [billMedFee, setBillMedFee] = useState(300);
+
   // EHR Dossier State
   const [activeEhrPatient, setActiveEhrPatient] = useState(null);
   const [dispatchAlert, setDispatchAlert] = useState('');
@@ -317,17 +425,20 @@ export default function App() {
     const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return { status: 'Expired', badge: 'bg-red-50 text-red-700 border-red-200', subtext: `Expired ${Math.abs(diffDays)}d ago` };
+      return { status: 'Expired', badge: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-900', subtext: `Expired ${Math.abs(diffDays)}d ago` };
     }
     if (diffDays <= 30) {
-      return { status: 'Expiring Soon', badge: 'bg-amber-50 text-amber-700 border-amber-200', subtext: `${diffDays} days remaining` };
+      return { status: 'Expiring Soon', badge: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900', subtext: `${diffDays} days remaining` };
     }
-    return { status: 'In Stock', badge: 'bg-teal-50 text-teal-700 border-teal-200', subtext: 'Shelf Life Safe' };
+    return { status: 'In Stock', badge: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-900', subtext: 'Shelf Life Safe' };
   };
 
   const expiredCount = medicines.filter(m => checkExpiryStatus(m.expiry).status === 'Expired').length;
   const expiringSoonCount = medicines.filter(m => checkExpiryStatus(m.expiry).status === 'Expiring Soon').length;
   const lowStockCount = medicines.filter(m => Number(m.stock) <= 15).length;
+
+  const occupiedBedCount = beds.filter(b => b.is_occupied).length;
+  const totalBeds = beds.length;
 
   const handleOpenEHR = (patientIdentifier) => {
     const pt = typeof patientIdentifier === 'string'
@@ -388,6 +499,74 @@ export default function App() {
     setPrescribeQty('10');
 
     setTimeout(() => setDispatchAlert(''), 4500);
+  };
+
+  // Bed Admit / Discharge Handler
+  const handleBedAction = async (e) => {
+    e.preventDefault();
+    if (!selectedBed) return;
+
+    const willOccupy = !selectedBed.is_occupied;
+    const finalPatient = willOccupy ? (admitPatientName.trim() || 'Admitted Patient') : '';
+
+    const updatedBeds = beds.map((b) => {
+      if (b.id === selectedBed.id) {
+        return {
+          ...b,
+          is_occupied: willOccupy,
+          patient_name: finalPatient
+        };
+      }
+      return b;
+    });
+
+    setBeds(updatedBeds);
+    const targetBed = updatedBeds.find(b => b.id === selectedBed.id);
+    setShowBedModal(false);
+    setSelectedBed(null);
+    setAdmitPatientName('');
+
+    try {
+      await supabase.from('beds').upsert([targetBed]);
+    } catch (err) {
+      console.warn("Supabase Bed update error:", err);
+    }
+  };
+
+  // Bill Generation Handler
+  const handleGenerateBill = async (e) => {
+    e.preventDefault();
+    const docF = Number(billDocFee) || 0;
+    const roomF = Number(billRoomFee) || 0;
+    const medF = Number(billMedFee) || 0;
+    const subtotal = docF + roomF + medF;
+    const tax = Math.round(subtotal * 0.05);
+    const total = subtotal + tax;
+
+    const ptName = billPatient || (patients[0]?.name ?? 'Walk-in Patient');
+    const ptPhone = patients.find(p => p.name === ptName)?.contact || '+91 90000 00000';
+
+    const newBill = {
+      id: `INV-${Math.floor(1000 + Math.random() * 9000)}`,
+      patient_name: ptName,
+      patient_phone: ptPhone,
+      doctor_fee: docF,
+      room_charges: roomF,
+      medicine_charges: medF,
+      tax: tax,
+      total_amount: total,
+      status: 'Paid',
+      date: todayDateStr
+    };
+
+    setBills([newBill, ...bills]);
+    setShowBillModal(false);
+
+    try {
+      await supabase.from('bills').upsert([newBill]);
+    } catch (err) {
+      console.warn("Supabase Bill insert error:", err);
+    }
   };
 
   // Appointment Booking
@@ -593,7 +772,7 @@ export default function App() {
             <img 
               src="/logo.png" 
               alt="Mediva Emblem" 
-              className="relative w-36 h-36 md:w-44 md:h-44 rounded-full object-cover border border-sky-400/20 shadow-2xl shadow-sky-950"
+              className="relative w-36 h-36 md:w-44 md:h-44 rounded-full object-cover border border-sky-400/20 shadow-2xl shadow-sky-950" 
             />
           </div>
 
@@ -645,9 +824,10 @@ export default function App() {
   // 2. MAIN APPLICATION INTERFACE
   // -----------------------------------------------------------
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex font-sans text-[#0F172A]">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#090D16] flex font-sans text-[#0F172A] dark:text-slate-100 transition-colors duration-200">
+      
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-[#E2E8F0] flex flex-col justify-between p-5">
+      <aside className="w-64 bg-white dark:bg-[#0F172A] border-r border-[#E2E8F0] dark:border-slate-800 flex flex-col justify-between p-5 print:hidden">
         <div>
           {/* Brand Header */}
           <div className="flex items-center gap-3 px-2 py-3 mb-6">
@@ -656,12 +836,12 @@ export default function App() {
               <img 
                 src="/logo.png" 
                 alt="Mediva Logo" 
-                className="relative h-11 w-11 rounded-full object-cover shadow-sm border border-slate-200" 
+                className="relative h-11 w-11 rounded-full object-cover shadow-sm border border-slate-200 dark:border-slate-700" 
               />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-[#0F172A]">Mediva</h1>
-              <p className="text-xs text-[#64748B] font-medium">Hospital Management</p>
+              <h1 className="text-xl font-bold tracking-tight text-[#0F172A] dark:text-white">Mediva</h1>
+              <p className="text-xs text-[#64748B] dark:text-slate-400 font-medium">Hospital Management</p>
             </div>
           </div>
 
@@ -670,6 +850,8 @@ export default function App() {
               { id: 'dashboard', label: 'Overview', icon: Activity },
               { id: 'appointments', label: 'Appointments', icon: Calendar },
               { id: 'patients', label: 'Patients (EHR)', icon: Users },
+              { id: 'beds', label: 'Bed Management', icon: BedDouble },
+              { id: 'billing', label: 'Billing & Invoices', icon: Receipt },
               { id: 'doctors', label: 'Doctors', icon: Stethoscope },
               { id: 'pharmacy', label: 'Pharmacy & Stock', icon: Pill },
               { id: 'book', label: 'Schedule Visit', icon: PlusCircle },
@@ -683,7 +865,7 @@ export default function App() {
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                     isActive 
                       ? 'bg-[#0284C7] text-white shadow-sm' 
-                      : 'text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]'
+                      : 'text-[#64748B] dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-[#0F172A] dark:hover:text-white'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -692,9 +874,16 @@ export default function App() {
                   </div>
                   {item.id === 'pharmacy' && (expiredCount > 0 || expiringSoonCount > 0) && (
                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                      isActive ? 'bg-white text-[#0284C7]' : 'bg-red-100 text-red-700'
+                      isActive ? 'bg-white text-[#0284C7]' : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
                     }`}>
                       {expiredCount + expiringSoonCount}
+                    </span>
+                  )}
+                  {item.id === 'beds' && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                      isActive ? 'bg-white text-[#0284C7]' : 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                    }`}>
+                      {totalBeds - occupiedBedCount} Free
                     </span>
                   )}
                 </button>
@@ -704,9 +893,9 @@ export default function App() {
         </div>
 
         <div className="space-y-2">
-          <div className="p-3.5 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs text-[#64748B]">
-            <p className="font-semibold text-[#0F172A]">EHR & Cloud Engine</p>
-            <p className="mt-1 flex items-center gap-1.5 text-teal-600 font-medium">
+          <div className="p-3.5 bg-slate-50 dark:bg-slate-850/60 border border-[#E2E8F0] dark:border-slate-800 rounded-xl text-xs text-[#64748B] dark:text-slate-400">
+            <p className="font-semibold text-[#0F172A] dark:text-slate-200">EHR & Cloud Engine</p>
+            <p className="mt-1 flex items-center gap-1.5 text-teal-600 dark:text-teal-400 font-medium">
               <span className={`h-2 w-2 rounded-full ${isCloudSyncing ? 'bg-amber-500 animate-spin' : 'bg-teal-500 animate-pulse'}`}></span>
               {isCloudSyncing ? 'Syncing Supabase...' : 'Supabase Synchronized'}
             </p>
@@ -714,7 +903,7 @@ export default function App() {
 
           <button 
             onClick={() => setHasEntered(false)}
-            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors border border-transparent hover:border-slate-200"
+            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
           >
             <LogOut className="w-3.5 h-3.5" /> Return to Welcome Screen
           </button>
@@ -722,27 +911,50 @@ export default function App() {
       </aside>
 
       {/* Main View */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        <header className="h-16 bg-white border-b border-[#E2E8F0] flex items-center justify-between px-8">
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto print:overflow-visible">
+        <header className="h-16 bg-white dark:bg-[#0F172A] border-b border-[#E2E8F0] dark:border-slate-800 flex items-center justify-between px-8 print:hidden">
           <div>
-            <h2 className="text-lg font-bold capitalize text-[#0F172A]">
-              {activeTab === 'book' ? 'Schedule Consultation' : activeTab === 'pharmacy' ? 'Pharmacy & Drug Expiry Monitor' : activeTab}
+            <h2 className="text-lg font-bold capitalize text-[#0F172A] dark:text-white">
+              {activeTab === 'book' ? 'Schedule Consultation' : 
+               activeTab === 'pharmacy' ? 'Pharmacy & Drug Expiry Monitor' : 
+               activeTab === 'beds' ? 'Inpatient Bed Allocation & Ward Tracker' :
+               activeTab === 'billing' ? 'Hospital Billing & Invoices' : activeTab}
             </h2>
-            <p className="text-xs text-[#64748B]">Automated real-time inventory aggregation & 10-minute slot allocation</p>
+            <p className="text-xs text-[#64748B] dark:text-slate-400">Automated real-time inventory aggregation & 10-minute slot allocation</p>
           </div>
           <div className="flex items-center gap-3">
-            {activeTab === 'pharmacy' ? (
+            {/* Dark Mode Toggle Button */}
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition"
+              title="Toggle Dark / Light Theme"
+            >
+              {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+            </button>
+
+            {activeTab === 'pharmacy' && (
               <button 
                 onClick={() => setShowMedModal(true)}
                 className="px-4 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white text-sm font-semibold rounded-lg shadow-sm transition-all flex items-center gap-2"
               >
                 <PlusCircle className="w-4 h-4" /> Manage Medication
               </button>
-            ) : (
+            )}
+
+            {activeTab === 'billing' && (
+              <button 
+                onClick={() => setShowBillModal(true)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-all flex items-center gap-2"
+              >
+                <PlusCircle className="w-4 h-4" /> Create Invoice
+              </button>
+            )}
+
+            {activeTab !== 'pharmacy' && activeTab !== 'billing' && (
               <>
                 <button 
                   onClick={() => setShowDoctorModal(true)}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-[#0F172A] text-xs font-semibold rounded-lg border border-[#E2E8F0] transition-all"
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[#0F172A] dark:text-slate-100 text-xs font-semibold rounded-lg border border-[#E2E8F0] dark:border-slate-700 transition-all"
                 >
                   + Add Doctor
                 </button>
@@ -764,45 +976,58 @@ export default function App() {
           </div>
         )}
 
-        <div className="p-8 max-w-7xl w-full mx-auto">
+        <div className="p-8 max-w-7xl w-full mx-auto print:p-0">
+          
           {/* TAB: DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-sm">
-                  <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Total Patients (EHR)</p>
-                  <h3 className="text-2xl font-bold mt-1 text-[#0F172A]">{patients.length}</h3>
+                <div className="bg-white dark:bg-[#0F172A] p-5 rounded-xl border border-[#E2E8F0] dark:border-slate-800 shadow-sm">
+                  <p className="text-xs font-semibold text-[#64748B] dark:text-slate-400 uppercase tracking-wider">Total Patients (EHR)</p>
+                  <h3 className="text-2xl font-bold mt-1 text-[#0F172A] dark:text-white">{patients.length}</h3>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-sm">
-                  <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Active Faculty</p>
-                  <h3 className="text-2xl font-bold mt-1 text-[#0F172A]">{doctors.length}</h3>
-                </div>
-                <div className="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-sm">
-                  <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Appointments</p>
-                  <h3 className="text-2xl font-bold mt-1 text-[#0284C7]">
-                    {appointments.filter(a => a.status === 'Scheduled').length} Active / {appointments.length} Total
+
+                <div className="bg-white dark:bg-[#0F172A] p-5 rounded-xl border border-[#E2E8F0] dark:border-slate-800 shadow-sm">
+                  <p className="text-xs font-semibold text-[#64748B] dark:text-slate-400 uppercase tracking-wider">Bed Occupancy</p>
+                  <h3 className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">
+                    {occupiedBedCount} / {totalBeds} Occupied
                   </h3>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+                    <div 
+                      className="bg-emerald-500 h-full rounded-full transition-all" 
+                      style={{ width: `${(occupiedBedCount / totalBeds) * 100}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-sm">
-                  <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Pharmacy Alerts</p>
+
+                <div className="bg-white dark:bg-[#0F172A] p-5 rounded-xl border border-[#E2E8F0] dark:border-slate-800 shadow-sm">
+                  <p className="text-xs font-semibold text-[#64748B] dark:text-slate-400 uppercase tracking-wider">Total Billing</p>
+                  <h3 className="text-2xl font-bold mt-1 text-[#0284C7]">
+                    ₹{bills.reduce((sum, b) => sum + (b.status === 'Paid' ? Number(b.total_amount) : 0), 0).toLocaleString()}
+                  </h3>
+                  <p className="text-[11px] text-[#64748B] dark:text-slate-400 mt-1">{bills.length} Invoices Logged</p>
+                </div>
+
+                <div className="bg-white dark:bg-[#0F172A] p-5 rounded-xl border border-[#E2E8F0] dark:border-slate-800 shadow-sm">
+                  <p className="text-xs font-semibold text-[#64748B] dark:text-slate-400 uppercase tracking-wider">Pharmacy Alerts</p>
                   <h3 className={`text-2xl font-bold mt-1 ${expiredCount > 0 ? 'text-red-600' : 'text-teal-600'}`}>
                     {expiredCount} Expired / {expiringSoonCount} Soon
                   </h3>
                 </div>
               </div>
 
-              <div className="bg-white border border-[#E2E8F0] rounded-xl shadow-sm overflow-hidden">
-                <div className="p-5 border-b border-[#E2E8F0] flex justify-between items-center">
+              <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-xl shadow-sm overflow-hidden">
+                <div className="p-5 border-b border-[#E2E8F0] dark:border-slate-800 flex justify-between items-center">
                   <div>
-                    <h3 className="text-base font-bold text-[#0F172A]">Recent Consultations</h3>
-                    <p className="text-xs text-[#64748B]">Click any status badge to toggle between Scheduled and Completed</p>
+                    <h3 className="text-base font-bold text-[#0F172A] dark:text-white">Recent Consultations</h3>
+                    <p className="text-xs text-[#64748B] dark:text-slate-400">Click any status badge to toggle between Scheduled and Completed</p>
                   </div>
-                  <span className="text-xs text-[#64748B]">
+                  <span className="text-xs text-[#64748B] dark:text-slate-400">
                     {appointments.filter(a => a.status === 'Completed').length} of {appointments.length} Finished
                   </span>
                 </div>
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs text-[#64748B] uppercase">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-[#64748B] dark:text-slate-400 uppercase">
                     <tr>
                       <th className="px-6 py-3">Patient (EHR Link)</th>
                       <th className="px-6 py-3">Assigned Doctor</th>
@@ -810,9 +1035,9 @@ export default function App() {
                       <th className="px-6 py-3">Status (Click to Toggle)</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#E2E8F0]">
+                  <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-800">
                     {appointments.map((a) => (
-                      <tr key={a.id} className="hover:bg-slate-50/50">
+                      <tr key={a.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                         <td className="px-6 py-4">
                           <button 
                             onClick={() => handleOpenEHR(a.patient)}
@@ -822,15 +1047,15 @@ export default function App() {
                             {a.patient}
                           </button>
                         </td>
-                        <td className="px-6 py-4 text-[#64748B]">{a.doctor} ({a.dept})</td>
-                        <td className="px-6 py-4 text-[#64748B] font-mono text-xs">{a.date} at {a.time}</td>
+                        <td className="px-6 py-4 text-[#64748B] dark:text-slate-300">{a.doctor} ({a.dept})</td>
+                        <td className="px-6 py-4 text-[#64748B] dark:text-slate-300 font-mono text-xs">{a.date} at {a.time}</td>
                         <td className="px-6 py-4">
                           <button
                             onClick={() => toggleAppointmentStatus(a.id)}
                             className={`px-3 py-1 text-xs font-semibold rounded-full border transition-all flex items-center gap-1.5 cursor-pointer ${
                               a.status === 'Completed' 
-                                ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100' 
-                                : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+                                ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-900 hover:bg-teal-100' 
+                                : 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-900 hover:bg-sky-100'
                             }`}
                           >
                             {a.status === 'Completed' ? (
@@ -854,49 +1079,172 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: BED MANAGEMENT */}
+          {activeTab === 'beds' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-[#0F172A] dark:text-white">Hospital Bed Matrix</h3>
+                  <p className="text-xs text-[#64748B] dark:text-slate-400">
+                    Live ward monitoring • {totalBeds - occupiedBedCount} vacant beds ready for admission
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 text-xs font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Available ({totalBeds - occupiedBedCount})
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Occupied ({occupiedBedCount})
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                {beds.map((b) => (
+                  <div
+                    key={b.id}
+                    onClick={() => {
+                      setSelectedBed(b);
+                      setShowBedModal(true);
+                    }}
+                    className={`p-5 rounded-xl border transition-all cursor-pointer ${
+                      b.is_occupied
+                        ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/60 hover:border-rose-400'
+                        : 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/60 hover:border-emerald-400'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{b.ward}</span>
+                        <h4 className="text-lg font-bold text-[#0F172A] dark:text-white">{b.bed_number}</h4>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        b.is_occupied 
+                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/80 dark:text-rose-200' 
+                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/80 dark:text-emerald-200'
+                      }`}>
+                        {b.is_occupied ? 'Occupied' : 'Vacant'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-800 text-xs">
+                      {b.is_occupied ? (
+                        <p className="text-slate-700 dark:text-slate-300">
+                          <span className="text-slate-400">Patient:</span> <strong className="font-semibold">{b.patient_name}</strong>
+                        </p>
+                      ) : (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">+ Click to Assign</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: BILLING & INVOICES */}
+          {activeTab === 'billing' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold text-[#0F172A] dark:text-white">Patient Invoices & Accounts</h3>
+                  <p className="text-xs text-[#64748B] dark:text-slate-400">GST-compliant medical billing and printable receipts</p>
+                </div>
+                <button
+                  onClick={() => setShowBillModal(true)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-2"
+                >
+                  <PlusCircle className="w-4 h-4" /> Create Invoice
+                </button>
+              </div>
+
+              <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-xl shadow-sm overflow-hidden">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-[#64748B] dark:text-slate-400 uppercase">
+                    <tr>
+                      <th className="px-6 py-3">Invoice ID</th>
+                      <th className="px-6 py-3">Patient Name</th>
+                      <th className="px-6 py-3">Date</th>
+                      <th className="px-6 py-3">Total (₹)</th>
+                      <th className="px-6 py-3">Status</th>
+                      <th className="px-6 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-800">
+                    {bills.map((inv) => (
+                      <tr key={inv.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <td className="px-6 py-4 font-mono font-bold text-[#0284C7]">{inv.id}</td>
+                        <td className="px-6 py-4 font-semibold text-[#0F172A] dark:text-white">{inv.patient_name}</td>
+                        <td className="px-6 py-4 text-xs text-[#64748B] dark:text-slate-300">{inv.date}</td>
+                        <td className="px-6 py-4 font-bold text-[#0F172A] dark:text-white">₹{Number(inv.total_amount).toLocaleString()}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                            inv.status === 'Paid' 
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
+                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                          }`}>
+                            {inv.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={() => setActiveInvoice(inv)}
+                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold transition inline-flex items-center gap-1.5"
+                          >
+                            <Printer className="w-3.5 h-3.5" /> View Receipt
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* TAB: PHARMACY & INVENTORY */}
           {activeTab === 'pharmacy' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-xl border border-red-200 bg-red-50/30 shadow-sm flex items-center gap-4">
-                  <div className="p-3 bg-red-100 text-red-600 rounded-xl">
+                <div className="bg-white dark:bg-[#0F172A] p-5 rounded-xl border border-red-200 dark:border-red-900 bg-red-50/30 dark:bg-red-950/20 shadow-sm flex items-center gap-4">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-300 rounded-xl">
                     <AlertTriangle className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold uppercase text-red-600">Expired Batches</p>
-                    <h3 className="text-2xl font-bold text-red-700">{expiredCount} Batches</h3>
+                    <p className="text-xs font-semibold uppercase text-red-600 dark:text-red-400">Expired Batches</p>
+                    <h3 className="text-2xl font-bold text-red-700 dark:text-red-300">{expiredCount} Batches</h3>
                     <p className="text-[11px] text-red-500">Sorted to top of inventory</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-xl border border-amber-200 bg-amber-50/30 shadow-sm flex items-center gap-4">
-                  <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
+                <div className="bg-white dark:bg-[#0F172A] p-5 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50/30 dark:bg-amber-950/20 shadow-sm flex items-center gap-4">
+                  <div className="p-3 bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-300 rounded-xl">
                     <Clock className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold uppercase text-amber-600">Expiring Soon (30d)</p>
-                    <h3 className="text-2xl font-bold text-amber-700">{expiringSoonCount} Batches</h3>
+                    <p className="text-xs font-semibold uppercase text-amber-600 dark:text-amber-400">Expiring Soon (30d)</p>
+                    <h3 className="text-2xl font-bold text-amber-700 dark:text-amber-300">{expiringSoonCount} Batches</h3>
                     <p className="text-[11px] text-amber-600">Priority FIFO rotation required</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-xl border border-sky-200 bg-sky-50/30 shadow-sm flex items-center gap-4">
-                  <div className="p-3 bg-sky-100 text-[#0284C7] rounded-xl">
+                <div className="bg-white dark:bg-[#0F172A] p-5 rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50/30 dark:bg-sky-950/20 shadow-sm flex items-center gap-4">
+                  <div className="p-3 bg-sky-100 dark:bg-sky-900/50 text-[#0284C7] rounded-xl">
                     <Package className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold uppercase text-[#0284C7]">Low Stock Alerts</p>
-                    <h3 className="text-2xl font-bold text-[#0F172A]">{lowStockCount} Items</h3>
-                    <p className="text-[11px] text-[#64748B]">Below 15 units remaining</p>
+                    <p className="text-xs font-semibold uppercase text-[#0284C7] dark:text-sky-300">Low Stock Alerts</p>
+                    <h3 className="text-2xl font-bold text-[#0F172A] dark:text-white">{lowStockCount} Items</h3>
+                    <p className="text-[11px] text-[#64748B] dark:text-slate-400">Below 15 units remaining</p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white border border-[#E2E8F0] rounded-xl shadow-sm overflow-hidden">
-                <div className="p-5 border-b border-[#E2E8F0] flex justify-between items-center">
+              <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-xl shadow-sm overflow-hidden">
+                <div className="p-5 border-b border-[#E2E8F0] dark:border-slate-800 flex justify-between items-center">
                   <div>
-                    <h3 className="text-base font-bold text-[#0F172A]">Clinical Pharmacy Stock (Sorted by Expiry: Ascending)</h3>
-                    <p className="text-xs text-[#64748B]">Different expiry dates automatically create distinct batch entries</p>
+                    <h3 className="text-base font-bold text-[#0F172A] dark:text-white">Clinical Pharmacy Stock (Sorted by Expiry: Ascending)</h3>
+                    <p className="text-xs text-[#64748B] dark:text-slate-400">Different expiry dates automatically create distinct batch entries</p>
                   </div>
                   <button 
                     onClick={() => setShowMedModal(true)}
@@ -906,7 +1254,7 @@ export default function App() {
                   </button>
                 </div>
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs text-[#64748B] uppercase">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-[#64748B] dark:text-slate-400 uppercase">
                     <tr>
                       <th className="px-6 py-3">Medicine / Dosage</th>
                       <th className="px-6 py-3">Category</th>
@@ -916,24 +1264,24 @@ export default function App() {
                       <th className="px-6 py-3">Shelf Life Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#E2E8F0]">
+                  <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-800">
                     {medicines.map((m) => {
                       const expInfo = checkExpiryStatus(m.expiry);
                       const isLow = Number(m.stock) <= 15;
                       return (
-                        <tr key={m.id} className="hover:bg-slate-50/50">
-                          <td className="px-6 py-4 font-semibold text-[#0F172A]">
+                        <tr key={m.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                          <td className="px-6 py-4 font-semibold text-[#0F172A] dark:text-white">
                             {m.name}
                           </td>
-                          <td className="px-6 py-4 text-[#64748B]">{m.category}</td>
-                          <td className="px-6 py-4 font-mono text-xs text-slate-500">{m.batch}</td>
+                          <td className="px-6 py-4 text-[#64748B] dark:text-slate-300">{m.category}</td>
+                          <td className="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">{m.batch}</td>
                           <td className="px-6 py-4">
-                            <span className={`inline-flex items-center gap-1.5 font-bold ${isLow ? 'text-amber-600' : 'text-[#0F172A]'}`}>
+                            <span className={`inline-flex items-center gap-1.5 font-bold ${isLow ? 'text-amber-600' : 'text-[#0F172A] dark:text-white'}`}>
                               {m.stock} {m.unit}
-                              {isLow && <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-normal">Low</span>}
+                              {isLow && <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 rounded font-normal">Low</span>}
                             </span>
                           </td>
-                          <td className="px-6 py-4 font-mono font-medium text-[#0F172A]">
+                          <td className="px-6 py-4 font-mono font-medium text-[#0F172A] dark:text-white">
                             {m.expiry}
                           </td>
                           <td className="px-6 py-4">
@@ -952,29 +1300,29 @@ export default function App() {
 
           {/* TAB: SCHEDULE VISIT */}
           {activeTab === 'book' && (
-            <div className="max-w-xl bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-sm">
+            <div className="max-w-xl bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-xl p-6 shadow-sm">
               <form onSubmit={handleBook} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Patient Name</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Patient Name</label>
                   <input 
                     type="text" 
                     value={patientName} 
                     onChange={(e) => setPatientName(e.target.value)}
                     placeholder="Enter full name"
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Select Doctor</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Select Doctor</label>
                   <select 
                     value={selectedDoc} 
                     onChange={(e) => {
                       setSelectedDoc(e.target.value);
                       setAptTime('');
                     }}
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
                     required
                   >
                     <option value="">-- Choose Doctor --</option>
@@ -986,7 +1334,7 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">
+                    <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">
                       Consultation Date
                     </label>
                     <input 
@@ -997,19 +1345,19 @@ export default function App() {
                         setAptDate(e.target.value);
                         setAptTime('');
                       }}
-                      className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                      className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">
+                    <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">
                       Time Slots Available
                     </label>
                     <select 
                       value={aptTime} 
                       onChange={(e) => setAptTime(e.target.value)}
                       disabled={!selectedDoc || !aptDate}
-                      className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] disabled:bg-slate-100 disabled:text-slate-400"
+                      className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] disabled:bg-slate-100 dark:disabled:bg-slate-900 disabled:text-slate-400 dark:text-white"
                       required
                     >
                       <option value="">
@@ -1027,20 +1375,20 @@ export default function App() {
                 </div>
 
                 {selectedDoc && aptDate && (
-                  <div className="text-[11px] text-[#64748B] bg-slate-50 p-2 rounded-lg border border-slate-200 flex justify-between">
+                  <div className="text-[11px] text-[#64748B] dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-200 dark:border-slate-700 flex justify-between">
                     <span>🟢 {availableSlots.length} available slots left for {selectedDoc}</span>
                     <span>🔴 {allTimeSlots.length - availableSlots.length} booked</span>
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Reason for Visit</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Reason for Visit</label>
                   <textarea 
                     value={reason} 
                     onChange={(e) => setReason(e.target.value)}
                     placeholder="e.g. Regular clinical checkup..." 
                     rows="3"
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
                   ></textarea>
                 </div>
 
@@ -1056,11 +1404,11 @@ export default function App() {
 
           {/* TAB: APPOINTMENTS */}
           {activeTab === 'appointments' && (
-            <div className="bg-white border border-[#E2E8F0] rounded-xl shadow-sm overflow-hidden">
-              <div className="p-5 border-b border-[#E2E8F0] flex justify-between items-center">
+            <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-xl shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-[#E2E8F0] dark:border-slate-800 flex justify-between items-center">
                 <div>
-                  <h3 className="text-base font-bold text-[#0F172A]">All Appointments</h3>
-                  <p className="text-xs text-[#64748B]">Synced with Supabase PostgreSQL Engine</p>
+                  <h3 className="text-base font-bold text-[#0F172A] dark:text-white">All Appointments</h3>
+                  <p className="text-xs text-[#64748B] dark:text-slate-400">Synced with Supabase PostgreSQL Engine</p>
                 </div>
                 <button 
                   onClick={() => setActiveTab('book')}
@@ -1070,7 +1418,7 @@ export default function App() {
                 </button>
               </div>
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs text-[#64748B] uppercase">
+                <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-[#64748B] dark:text-slate-400 uppercase">
                   <tr>
                     <th className="px-6 py-3">Patient (EHR Link)</th>
                     <th className="px-6 py-3">Doctor</th>
@@ -1080,9 +1428,9 @@ export default function App() {
                     <th className="px-6 py-3 text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
+                <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-800">
                   {appointments.map(a => (
-                    <tr key={a.id} className="hover:bg-slate-50/50">
+                    <tr key={a.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                       <td className="px-6 py-4">
                         <button 
                           onClick={() => handleOpenEHR(a.patient)}
@@ -1092,16 +1440,16 @@ export default function App() {
                           {a.patient}
                         </button>
                       </td>
-                      <td className="px-6 py-4 text-[#64748B]">{a.doctor}</td>
-                      <td className="px-6 py-4 text-[#64748B]">{a.dept}</td>
-                      <td className="px-6 py-4 text-[#64748B] font-mono text-xs">{a.date} at {a.time}</td>
+                      <td className="px-6 py-4 text-[#64748B] dark:text-slate-300">{a.doctor}</td>
+                      <td className="px-6 py-4 text-[#64748B] dark:text-slate-300">{a.dept}</td>
+                      <td className="px-6 py-4 text-[#64748B] dark:text-slate-300 font-mono text-xs">{a.date} at {a.time}</td>
                       <td className="px-6 py-4">
                         <button
                           onClick={() => toggleAppointmentStatus(a.id)}
                           className={`px-2.5 py-1 text-xs font-semibold rounded-full border flex items-center gap-1.5 cursor-pointer ${
                             a.status === 'Completed' 
-                              ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100' 
-                              : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+                              ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-900 hover:bg-teal-100' 
+                              : 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-900 hover:bg-sky-100'
                           }`}
                         >
                           {a.status === 'Completed' ? (
@@ -1126,7 +1474,7 @@ export default function App() {
                         ) : (
                           <button
                             onClick={() => toggleAppointmentStatus(a.id)}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-[#64748B] hover:text-[#0F172A] rounded-lg text-xs font-semibold border border-[#E2E8F0] flex items-center gap-1.5 ml-auto transition-all"
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[#64748B] hover:text-[#0F172A] dark:text-slate-300 dark:hover:text-white rounded-lg text-xs font-semibold border border-[#E2E8F0] dark:border-slate-700 flex items-center gap-1.5 ml-auto transition-all"
                           >
                             <RotateCcw className="w-3 h-3" /> Reopen Visit
                           </button>
@@ -1141,11 +1489,11 @@ export default function App() {
 
           {/* TAB: PATIENT DIRECTORY & EHR */}
           {activeTab === 'patients' && (
-            <div className="bg-white border border-[#E2E8F0] rounded-xl shadow-sm overflow-hidden">
-              <div className="p-5 border-b border-[#E2E8F0] flex justify-between items-center">
+            <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-xl shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-[#E2E8F0] dark:border-slate-800 flex justify-between items-center">
                 <div>
-                  <h3 className="text-base font-bold text-[#0F172A]">Electronic Health Records (EHR)</h3>
-                  <p className="text-xs text-[#64748B]">Click any patient name to access records and dispatch digital prescriptions</p>
+                  <h3 className="text-base font-bold text-[#0F172A] dark:text-white">Electronic Health Records (EHR)</h3>
+                  <p className="text-xs text-[#64748B] dark:text-slate-400">Click any patient name to access records and dispatch digital prescriptions</p>
                 </div>
                 <button 
                   onClick={() => setShowPatientModal(true)}
@@ -1155,7 +1503,7 @@ export default function App() {
                 </button>
               </div>
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs text-[#64748B] uppercase">
+                <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-[#64748B] dark:text-slate-400 uppercase">
                   <tr>
                     <th className="px-6 py-3">Patient Name (Click for EHR)</th>
                     <th className="px-6 py-3">DOB</th>
@@ -1166,9 +1514,9 @@ export default function App() {
                     <th className="px-6 py-3 text-right">EHR Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#E2E8F0]">
+                <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-800">
                   {patients.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50/50">
+                    <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                       <td className="px-6 py-4">
                         <button 
                           onClick={() => handleOpenEHR(p)} 
@@ -1178,21 +1526,21 @@ export default function App() {
                           {p.name}
                         </button>
                       </td>
-                      <td className="px-6 py-4 text-[#64748B]">{p.dob}</td>
-                      <td className="px-6 py-4 text-[#64748B]">{p.gender}</td>
+                      <td className="px-6 py-4 text-[#64748B] dark:text-slate-300">{p.dob}</td>
+                      <td className="px-6 py-4 text-[#64748B] dark:text-slate-300">{p.gender}</td>
                       <td className="px-6 py-4">
-                        <span className="px-2 py-0.5 bg-slate-100 font-semibold text-xs rounded border border-slate-200">
+                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 font-semibold text-xs rounded border border-slate-200 dark:border-slate-700">
                           {p.blood}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-xs font-medium text-amber-700">
+                      <td className="px-6 py-4 text-xs font-medium text-amber-700 dark:text-amber-400">
                         {p.allergies || 'None recorded'}
                       </td>
-                      <td className="px-6 py-4 text-[#64748B]">{p.contact}</td>
+                      <td className="px-6 py-4 text-[#64748B] dark:text-slate-300">{p.contact}</td>
                       <td className="px-6 py-4 text-right">
                         <button 
                           onClick={() => handleOpenEHR(p)}
-                          className="px-2.5 py-1 text-xs font-semibold bg-sky-50 text-[#0284C7] hover:bg-sky-100 rounded-md border border-sky-200"
+                          className="px-2.5 py-1 text-xs font-semibold bg-sky-50 dark:bg-sky-950/40 text-[#0284C7] hover:bg-sky-100 dark:hover:bg-sky-900/60 rounded-md border border-sky-200 dark:border-sky-900"
                         >
                           Open Dossier
                         </button>
@@ -1209,8 +1557,8 @@ export default function App() {
             <div>
               <div className="flex justify-between items-center mb-6">
                 <div>
-                  <h3 className="text-lg font-bold text-[#0F172A]">Clinical Faculty</h3>
-                  <p className="text-xs text-[#64748B]">Manage specialists and consulting doctors</p>
+                  <h3 className="text-lg font-bold text-[#0F172A] dark:text-white">Clinical Faculty</h3>
+                  <p className="text-xs text-[#64748B] dark:text-slate-400">Manage specialists and consulting doctors</p>
                 </div>
                 <button 
                   onClick={() => setShowDoctorModal(true)}
@@ -1222,17 +1570,17 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {doctors.map(d => (
-                  <div key={d.id} className="bg-white border border-[#E2E8F0] rounded-xl p-5 shadow-sm">
+                  <div key={d.id} className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-xl p-5 shadow-sm">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="h-10 w-10 rounded-full bg-sky-100 text-[#0284C7] flex items-center justify-center font-bold">
+                      <div className="h-10 w-10 rounded-full bg-sky-100 dark:bg-sky-950 text-[#0284C7] flex items-center justify-center font-bold">
                         {d.name.split(' ')[1]?.[0] || 'D'}
                       </div>
                       <div>
-                        <h4 className="font-bold text-sm text-[#0F172A]">{d.name}</h4>
-                        <p className="text-xs text-[#64748B]">{d.spec}</p>
+                        <h4 className="font-bold text-sm text-[#0F172A] dark:text-white">{d.name}</h4>
+                        <p className="text-xs text-[#64748B] dark:text-slate-400">{d.spec}</p>
                       </div>
                     </div>
-                    <div className="text-xs space-y-2 text-[#64748B] pt-3 border-t border-[#E2E8F0]">
+                    <div className="text-xs space-y-2 text-[#64748B] dark:text-slate-300 pt-3 border-t border-[#E2E8F0] dark:border-slate-800">
                       <p className="flex items-center gap-2"><Building2 className="w-3.5 h-3.5 text-[#0284C7]" /> {d.dept}</p>
                       <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-[#0284C7]" /> {d.email}</p>
                       <p className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-[#0284C7]" /> {d.phone}</p>
@@ -1245,10 +1593,212 @@ export default function App() {
         </div>
       </main>
 
+      {/* MODAL: BED ASSIGNMENT / DISCHARGE */}
+      {showBedModal && selectedBed && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+            <h3 className="font-bold text-base text-[#0F172A] dark:text-white">
+              {selectedBed.bed_number} — {selectedBed.ward}
+            </h3>
+            <p className="text-xs text-[#64748B] dark:text-slate-400 mt-1">
+              Status: <span className="font-semibold">{selectedBed.is_occupied ? 'Occupied' : 'Vacant'}</span>
+            </p>
+
+            <form onSubmit={handleBedAction} className="mt-5 space-y-4">
+              {!selectedBed.is_occupied ? (
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">
+                    Assign Patient Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter patient name"
+                    value={admitPatientName}
+                    onChange={(e) => setAdmitPatientName(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
+                  />
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+                  Admitted Patient: <strong className="font-bold text-[#0F172A] dark:text-white">{selectedBed.patient_name}</strong>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBedModal(false)}
+                  className="w-1/2 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={`w-1/2 py-2 text-white text-xs font-semibold rounded-lg ${
+                    selectedBed.is_occupied ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
+                >
+                  {selectedBed.is_occupied ? 'Discharge Bed' : 'Admit Patient'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREATE INVOICE */}
+      {showBillModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-base text-[#0F172A] dark:text-white">Create Hospital Bill</h3>
+              <button onClick={() => setShowBillModal(false)} className="text-[#64748B] hover:text-[#0F172A]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateBill} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Select Patient</label>
+                <select
+                  value={billPatient}
+                  onChange={(e) => setBillPatient(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
+                >
+                  <option value="">-- Choose Patient --</option>
+                  {patients.map(p => (
+                    <option key={p.id} value={p.name}>{p.name} ({p.contact})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Doctor Consultation Fee (₹)</label>
+                <input
+                  type="number"
+                  value={billDocFee}
+                  onChange={(e) => setBillDocFee(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Ward / Room Charges (₹)</label>
+                <input
+                  type="number"
+                  value={billRoomFee}
+                  onChange={(e) => setBillRoomFee(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Pharmacy / Medicine Fee (₹)</label>
+                <input
+                  type="number"
+                  value={billMedFee}
+                  onChange={(e) => setBillMedFee(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:text-white"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-lg shadow-sm transition"
+                >
+                  Generate Invoice
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PRINTABLE INVOICE DOSSIER */}
+      {activeInvoice && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white text-[#0F172A] w-full max-w-lg rounded-2xl p-6 shadow-2xl relative border">
+            <div className="flex justify-between items-start border-b pb-4">
+              <div>
+                <h3 className="text-xl font-black tracking-tight text-[#0284C7]">MEDIVA HOSPITAL</h3>
+                <p className="text-xs text-slate-500">Super Specialty Centre & EHR Portal</p>
+                <p className="text-[10px] text-slate-400">GSTIN: 23AAAAA0000A1Z5</p>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">INVOICE</span>
+                <p className="text-sm font-bold font-mono">{activeInvoice.id}</p>
+                <p className="text-xs text-slate-500">Date: {activeInvoice.date}</p>
+              </div>
+            </div>
+
+            <div className="my-4 grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-slate-400 uppercase font-semibold">Billed To:</span>
+                <p className="font-bold text-sm text-[#0F172A] mt-0.5">{activeInvoice.patient_name}</p>
+                <p className="text-slate-500">{activeInvoice.patient_phone}</p>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 uppercase font-semibold">Payment Status:</span>
+                <p className="font-bold text-sm text-emerald-600 mt-0.5">{activeInvoice.status}</p>
+              </div>
+            </div>
+
+            <table className="w-full text-xs text-left my-4 border-t border-b">
+              <thead>
+                <tr className="border-b bg-slate-50">
+                  <th className="py-2 px-3 font-semibold">Service Description</th>
+                  <th className="py-2 px-3 font-semibold text-right">Amount (₹)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                <tr>
+                  <td className="py-2 px-3">Physician Consultation Fee</td>
+                  <td className="py-2 px-3 text-right">₹{activeInvoice.doctor_fee}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3">Ward Room / Bed Charges</td>
+                  <td className="py-2 px-3 text-right">₹{activeInvoice.room_charges}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3">Pharmaceuticals Dispensed</td>
+                  <td className="py-2 px-3 text-right">₹{activeInvoice.medicine_charges}</td>
+                </tr>
+                <tr className="bg-slate-50/50">
+                  <td className="py-2 px-3 font-semibold">GST (5%)</td>
+                  <td className="py-2 px-3 text-right font-semibold">₹{activeInvoice.tax}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="flex justify-between items-center text-sm font-bold pt-1">
+              <span>Total Amount</span>
+              <span className="text-lg text-[#0284C7] font-black">₹{Number(activeInvoice.total_amount).toLocaleString()}</span>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2 print:hidden">
+              <button
+                onClick={() => setActiveInvoice(null)}
+                className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm"
+              >
+                <Printer className="w-3.5 h-3.5" /> Print Receipt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: EHR DOSSIER */}
       {activeEhrPatient && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-[#E2E8F0] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
             <div className="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-xl bg-sky-500 flex items-center justify-center font-bold text-lg">
@@ -1276,19 +1826,19 @@ export default function App() {
 
             <div className="p-6 overflow-y-auto space-y-6">
               <div className="grid grid-cols-4 gap-3 text-center">
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <p className="text-[10px] uppercase font-bold text-[#64748B]">Blood Group</p>
-                  <p className="text-base font-extrabold text-[#0F172A] mt-0.5">{activeEhrPatient.blood || 'Unknown'}</p>
+                <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <p className="text-[10px] uppercase font-bold text-[#64748B] dark:text-slate-400">Blood Group</p>
+                  <p className="text-base font-extrabold text-[#0F172A] dark:text-white mt-0.5">{activeEhrPatient.blood || 'Unknown'}</p>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <p className="text-[10px] uppercase font-bold text-[#64748B]">Blood Pressure</p>
-                  <p className="text-base font-extrabold text-[#0F172A] mt-0.5">{activeEhrPatient.vitals?.bp || '120/80'}</p>
+                <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <p className="text-[10px] uppercase font-bold text-[#64748B] dark:text-slate-400">Blood Pressure</p>
+                  <p className="text-base font-extrabold text-[#0F172A] dark:text-white mt-0.5">{activeEhrPatient.vitals?.bp || '120/80'}</p>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <p className="text-[10px] uppercase font-bold text-[#64748B]">Resting Pulse</p>
-                  <p className="text-base font-extrabold text-[#0F172A] mt-0.5">{activeEhrPatient.vitals?.pulse || '72 bpm'}</p>
+                <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                  <p className="text-[10px] uppercase font-bold text-[#64748B] dark:text-slate-400">Resting Pulse</p>
+                  <p className="text-base font-extrabold text-[#0F172A] dark:text-white mt-0.5">{activeEhrPatient.vitals?.pulse || '72 bpm'}</p>
                 </div>
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800">
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl text-amber-800 dark:text-amber-300">
                   <p className="text-[10px] uppercase font-bold flex items-center justify-center gap-1">
                     <ShieldAlert className="w-3 h-3 text-amber-600" /> Allergies
                   </p>
@@ -1296,18 +1846,18 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-5">
-                <h4 className="text-sm font-bold text-[#0F172A] flex items-center gap-2 mb-3">
+              <div className="bg-sky-50/60 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-900 rounded-xl p-5">
+                <h4 className="text-sm font-bold text-[#0F172A] dark:text-white flex items-center gap-2 mb-3">
                   <Send className="w-4 h-4 text-[#0284C7]" /> Prescribe & Send Digital Medication
                 </h4>
                 <form onSubmit={handleSendPrescription} className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-[#64748B] mb-1">Select from Pharmacy Inventory</label>
+                      <label className="block text-xs font-semibold text-[#64748B] dark:text-slate-400 mb-1">Select from Pharmacy Inventory</label>
                       <select 
                         value={prescribeMed} 
                         onChange={(e) => setPrescribeMed(e.target.value)}
-                        className="w-full bg-white border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7]"
+                        className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7] dark:text-white"
                         required
                       >
                         <option value="">-- Choose Medicine --</option>
@@ -1319,13 +1869,13 @@ export default function App() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-[#64748B] mb-1">Dosage Instructions</label>
+                      <label className="block text-xs font-semibold text-[#64748B] dark:text-slate-400 mb-1">Dosage Instructions</label>
                       <input 
                         type="text" 
                         value={prescribeDosage} 
-                        onChange={(e) => setPrescribeDosage(e.target.value)}
+                        onChange={(e) => setPrescribeDosage(e.target.value)} 
                         placeholder="e.g. 1 Tablet after breakfast" 
-                        className="w-full bg-white border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7]"
+                        className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7] dark:text-white"
                         required 
                       />
                     </div>
@@ -1333,31 +1883,31 @@ export default function App() {
 
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-[#64748B] mb-1">Duration</label>
+                      <label className="block text-xs font-semibold text-[#64748B] dark:text-slate-400 mb-1">Duration</label>
                       <input 
                         type="text" 
                         value={prescribeDuration} 
-                        onChange={(e) => setPrescribeDuration(e.target.value)}
+                        onChange={(e) => setPrescribeDuration(e.target.value)} 
                         placeholder="e.g. 7 Days" 
-                        className="w-full bg-white border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7]"
+                        className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7] dark:text-white"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-[#64748B] mb-1">Dispensing Quantity</label>
+                      <label className="block text-xs font-semibold text-[#64748B] dark:text-slate-400 mb-1">Dispensing Quantity</label>
                       <input 
                         type="number" 
                         value={prescribeQty} 
-                        onChange={(e) => setPrescribeQty(e.target.value)}
+                        onChange={(e) => setPrescribeQty(e.target.value)} 
                         min="1"
-                        className="w-full bg-white border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7]"
+                        className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7] dark:text-white"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-[#64748B] mb-1">Attending Faculty</label>
+                      <label className="block text-xs font-semibold text-[#64748B] dark:text-slate-400 mb-1">Attending Faculty</label>
                       <select 
                         value={prescribeDoctor} 
                         onChange={(e) => setPrescribeDoctor(e.target.value)}
-                        className="w-full bg-white border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7]"
+                        className="w-full bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#0284C7] dark:text-white"
                       >
                         {doctors.map(d => (
                           <option key={d.id} value={d.name}>{d.name}</option>
@@ -1376,21 +1926,21 @@ export default function App() {
               </div>
 
               <div>
-                <h4 className="text-sm font-bold text-[#0F172A] mb-3">Prescription & Medication History</h4>
+                <h4 className="text-sm font-bold text-[#0F172A] dark:text-white mb-3">Prescription & Medication History</h4>
                 {(!activeEhrPatient.prescriptions || activeEhrPatient.prescriptions.length === 0) ? (
-                  <div className="p-6 text-center border border-dashed border-slate-200 rounded-xl text-xs text-[#64748B]">
+                  <div className="p-6 text-center border border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-xs text-[#64748B] dark:text-slate-400">
                     No digital prescriptions logged yet. Use the dispatch form above to prescribe.
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {activeEhrPatient.prescriptions.map(rx => (
-                      <div key={rx.id} className="p-3.5 bg-white border border-[#E2E8F0] rounded-xl flex items-center justify-between shadow-xs">
+                      <div key={rx.id} className="p-3.5 bg-white dark:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-xl flex items-center justify-between shadow-xs">
                         <div>
-                          <p className="text-sm font-bold text-[#0F172A]">{rx.medName}</p>
-                          <p className="text-xs text-[#64748B]">{rx.dosage} • {rx.duration} (Qty: {rx.qty})</p>
+                          <p className="text-sm font-bold text-[#0F172A] dark:text-white">{rx.medName}</p>
+                          <p className="text-xs text-[#64748B] dark:text-slate-300">{rx.dosage} • {rx.duration} (Qty: {rx.qty})</p>
                           <p className="text-[11px] text-slate-400">Prescribed by {rx.doctor} on {rx.date}</p>
                         </div>
-                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-full flex items-center gap-1">
+                        <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold rounded-full flex items-center gap-1">
                           <Check className="w-3 h-3 text-emerald-600" /> {rx.status}
                         </span>
                       </div>
@@ -1400,10 +1950,10 @@ export default function App() {
               </div>
             </div>
 
-            <div className="px-6 py-3 bg-slate-50 border-t border-[#E2E8F0] flex justify-end">
+            <div className="px-6 py-3 bg-slate-50 dark:bg-slate-800 border-t border-[#E2E8F0] dark:border-slate-700 flex justify-end">
               <button 
                 onClick={() => setActiveEhrPatient(null)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-[#0F172A] text-xs font-bold rounded-lg"
+                className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-[#0F172A] dark:text-white text-xs font-bold rounded-lg"
               >
                 Close Record
               </button>
@@ -1415,18 +1965,18 @@ export default function App() {
       {/* MODAL: ADD / RESTOCK MEDICATION */}
       {showMedModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-[#E2E8F0] rounded-2xl w-full max-w-md p-6 shadow-xl">
+          <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h3 className="font-bold text-base text-[#0F172A]">Manage Pharmacy Stock</h3>
-                <p className="text-xs text-[#64748B]">Choose an existing drug to restock or register a new one</p>
+                <h3 className="font-bold text-base text-[#0F172A] dark:text-white">Manage Pharmacy Stock</h3>
+                <p className="text-xs text-[#64748B] dark:text-slate-400">Choose an existing drug to restock or register a new one</p>
               </div>
               <button onClick={() => setShowMedModal(false)} className="text-[#64748B] hover:text-[#0F172A]">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-lg mb-4">
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg mb-4">
               <button
                 type="button"
                 onClick={() => {
@@ -1437,8 +1987,8 @@ export default function App() {
                 }}
                 className={`py-1.5 text-xs font-semibold rounded-md transition-all ${
                   medMode === 'existing'
-                    ? 'bg-white text-[#0284C7] shadow-xs'
-                    : 'text-[#64748B] hover:text-[#0F172A]'
+                    ? 'bg-white dark:bg-slate-700 text-[#0284C7] dark:text-white shadow-xs'
+                    : 'text-[#64748B] dark:text-slate-400 hover:text-[#0F172A]'
                 }`}
               >
                 Existing Medicine
@@ -1452,8 +2002,8 @@ export default function App() {
                 }}
                 className={`py-1.5 text-xs font-semibold rounded-md transition-all ${
                   medMode === 'new'
-                    ? 'bg-white text-[#0284C7] shadow-xs'
-                    : 'text-[#64748B] hover:text-[#0F172A]'
+                    ? 'bg-white dark:bg-slate-700 text-[#0284C7] dark:text-white shadow-xs'
+                    : 'text-[#64748B] dark:text-slate-400 hover:text-[#0F172A]'
                 }`}
               >
                 + New Medicine
@@ -1463,13 +2013,13 @@ export default function App() {
             <form onSubmit={handleAddMedicine} className="space-y-3">
               {medMode === 'existing' ? (
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">
                     Select Existing Medicine
                   </label>
                   <select 
                     value={medName} 
                     onChange={(e) => handleSelectExistingMed(e.target.value)}
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] bg-white"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] bg-white dark:bg-slate-800 dark:text-white"
                     required
                   >
                     <option value="">-- Choose from catalog --</option>
@@ -1477,13 +2027,13 @@ export default function App() {
                       <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
-                  <p className="text-[11px] text-[#64748B] mt-1">
+                  <p className="text-[11px] text-[#64748B] dark:text-slate-400 mt-1">
                     * If the expiry date matches an existing batch, stock merges. If it differs, a new batch is created.
                   </p>
                 </div>
               ) : (
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">
                     Drug Name & Dosage
                   </label>
                   <input 
@@ -1491,7 +2041,7 @@ export default function App() {
                     value={medName} 
                     onChange={(e) => setMedName(e.target.value)} 
                     placeholder="e.g. Ciprofloxacin 500mg"
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                     required 
                   />
                 </div>
@@ -1499,46 +2049,46 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Batch Number</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Batch Number</label>
                   <input 
                     type="text" 
                     value={medBatch} 
                     onChange={(e) => setMedBatch(e.target.value)} 
                     placeholder="e.g. BZ-9021"
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Category</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Category</label>
                   <input 
                     type="text" 
                     value={medCategory} 
                     onChange={(e) => setMedCategory(e.target.value)} 
                     placeholder="e.g. Antibiotic"
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Stock Units</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Stock Units</label>
                   <input 
                     type="number" 
                     value={medStock} 
                     onChange={(e) => setMedStock(e.target.value)} 
                     placeholder="e.g. 50"
                     min="1"
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                     required 
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Unit Type</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Unit Type</label>
                   <select 
                     value={medUnit} 
                     onChange={(e) => setMedUnit(e.target.value)}
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] bg-white"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] bg-white dark:bg-slate-800 dark:text-white"
                   >
                     {['Tablets', 'Capsules', 'Vials', 'Bottles', 'Ampoules'].map(u => (
                       <option key={u} value={u}>{u}</option>
@@ -1548,12 +2098,12 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Batch Expiry Date</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Batch Expiry Date</label>
                 <input 
                   type="date" 
                   value={medExpiry} 
                   onChange={(e) => setMedExpiry(e.target.value)} 
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   required 
                 />
               </div>
@@ -1572,55 +2122,55 @@ export default function App() {
       {/* MODAL: ADD DOCTOR */}
       {showDoctorModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-[#E2E8F0] rounded-2xl w-full max-w-md p-6 shadow-xl">
+          <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-base text-[#0F172A]">Add Doctor</h3>
+              <h3 className="font-bold text-base text-[#0F172A] dark:text-white">Add Doctor</h3>
               <button onClick={() => setShowDoctorModal(false)} className="text-[#64748B] hover:text-[#0F172A]">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleAddDoctor} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Doctor Name</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Doctor Name</label>
                 <input 
                   type="text" 
                   value={docName} 
                   onChange={(e) => setDocName(e.target.value)} 
                   placeholder="e.g. Dr. Aryan Saxena"
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   required 
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Specialization</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Specialization</label>
                 <input 
                   type="text" 
                   value={docSpec} 
                   onChange={(e) => setDocSpec(e.target.value)} 
                   placeholder="e.g. Pediatrician"
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   required 
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Department</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Department</label>
                 <input 
                   type="text" 
                   value={docDept} 
                   onChange={(e) => setDocDept(e.target.value)} 
                   placeholder="e.g. Pediatrics"
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   required 
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Contact Phone</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Contact Phone</label>
                 <input 
                   type="text" 
                   value={docPhone} 
                   onChange={(e) => setDocPhone(e.target.value)} 
                   placeholder="+91 98765 00000"
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                 />
               </div>
               <button 
@@ -1637,41 +2187,41 @@ export default function App() {
       {/* MODAL: ADD PATIENT */}
       {showPatientModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-[#E2E8F0] rounded-2xl w-full max-w-md p-6 shadow-xl">
+          <div className="bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-base text-[#0F172A]">Add New Patient</h3>
+              <h3 className="font-bold text-base text-[#0F172A] dark:text-white">Add New Patient</h3>
               <button onClick={() => setShowPatientModal(false)} className="text-[#64748B] hover:text-[#0F172A]">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleAddPatient} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Full Name</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Full Name</label>
                 <input 
                   type="text" 
                   value={newPtName} 
                   onChange={(e) => setNewPtName(e.target.value)} 
                   placeholder="e.g. Vikas Gupta"
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   required 
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Date of Birth</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Date of Birth</label>
                   <input 
                     type="date" 
                     value={newPtDob} 
                     onChange={(e) => setNewPtDob(e.target.value)} 
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Blood Group</label>
+                  <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Blood Group</label>
                   <select 
                     value={newPtBlood} 
                     onChange={(e) => setNewPtBlood(e.target.value)} 
-                    className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                    className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] bg-white dark:bg-slate-800 dark:text-white"
                   >
                     {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(b => (
                       <option key={b} value={b}>{b}</option>
@@ -1680,23 +2230,23 @@ export default function App() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Phone Number</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Phone Number</label>
                 <input 
                   type="text" 
                   value={newPtContact} 
                   onChange={(e) => setNewPtContact(e.target.value)} 
                   placeholder="+91 91234 00000"
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]"
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase text-[#64748B] mb-1">Known Allergies</label>
+                <label className="block text-xs font-semibold uppercase text-[#64748B] dark:text-slate-400 mb-1">Known Allergies</label>
                 <input 
                   type="text" 
                   value={newPtAllergies} 
                   onChange={(e) => setNewPtAllergies(e.target.value)} 
                   placeholder="e.g. Penicillin, Sulfa Drugs (or None recorded)" 
-                  className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7]" 
+                  className="w-full border border-[#E2E8F0] dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0284C7] dark:bg-slate-800 dark:text-white" 
                 />
               </div>
               <button 
